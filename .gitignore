@@ -1,0 +1,17 @@
+node_modules/
+.expo/
+[Ll]ibrary/
+[Tt]emp/
+[Oo]bj/
+[Bb]uild/
+[Bb]uilds/
+[Ll]ogs/
+[Uu]ser[Ss]ettings/
+*.csproj
+*.sln
+.DS_Store
+Thumbs.db
+rn-bhabhi/android/.gradle
+rn-bhabhi/android/build/
+rn-bhabhi/android/app/build/
+rn-bhabhi/server/dist/

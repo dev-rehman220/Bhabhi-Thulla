@@ -1,0 +1,20 @@
+{
+  "expo": {
+    "name": "Bhabhi Thulla",
+    "slug": "bhabhi-thulla",
+    "version": "0.1.0",
+    "sdkVersion": "48.0.0",
+    "platforms": ["ios", "android"],
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0b3d2e"
+    }
+    ,
+    "android": {
+      "package": "com.devrehman220.bhabhithulla"
+    }
+  }
+}
