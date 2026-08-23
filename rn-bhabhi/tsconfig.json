@@ -16,6 +16,7 @@
       ]
     }
   },
+  "include": ["App.tsx", "src", "shared", "tools"],
   "exclude": [
     "node_modules",
     "babel.config.js",

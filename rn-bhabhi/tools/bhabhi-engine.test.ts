@@ -32,6 +32,16 @@ function testBuildDeck() {
   assert.equal(new Set(deck.map((c) => c.id)).size, 52, 'deck cards should be unique');
 }
 
+function testSixPlayerDistribution() {
+  const playerIds = ['p1', 'p2', 'p3', 'p4', 'p5', 'p6'];
+  const deck = BhabhiEngine.buildDeck();
+  const hands = BhabhiEngine.dealCards(playerIds, deck);
+  const dealtCards = playerIds.flatMap((id) => hands[id]);
+  assert.equal(dealtCards.length, 52, 'all cards should be distributed');
+  assert.equal(new Set(dealtCards.map((card) => card.id)).size, 52, 'distributed cards should remain unique');
+  assert.equal(Math.max(...playerIds.map((id) => hands[id].length)) - Math.min(...playerIds.map((id) => hands[id].length)), 1, 'hands should differ by at most one card');
+}
+
 function testValidateMove() {
   const hand = [
     makeCard('hearts_10', 'hearts', '10', 10),
@@ -63,13 +73,26 @@ function testApplyMoveAndTimeout() {
   const result = BhabhiEngine.applyMove(state, 'p1', handA[0], hands);
   assert.equal(result.mustPickup, false, 'first play on empty pile should not force pickup');
   assert.equal(result.state.pile.length, 1, 'pile should contain played card');
-  assert.equal(result.state.currentTurnPlayerId, 'p2', 'turn should advance to next player');
+  assert.equal(result.state.currentTurnPlayerId, 'p2', 'turn should advance to the player on the left');
   assert.equal(hands.p1.length, 1, 'played card should be removed from hand');
 
   const timeoutState = makeMatch({ pile: [], pileLeadSuit: undefined });
   const timeout = BhabhiEngine.handleTurnTimeout(timeoutState, [handB[0]]);
   assert.equal(timeout.forcePickup, false, 'empty pile timeout should prefer playing a card');
   assert.equal(timeout.forceCard?.id, 'spades_A', 'timeout should choose available card');
+}
+
+function testTurnMovesLeftForThreePlayers() {
+  const state = makeMatch({
+    turnOrder: ['p1', 'p2', 'p3'],
+    currentTurnPlayerId: 'p1',
+    scores: {
+      p1: { playerId: 'p1', roundsWon: 0, cardsCollected: 0, isEliminated: false, isThulla: false },
+      p2: { playerId: 'p2', roundsWon: 0, cardsCollected: 0, isEliminated: false, isThulla: false },
+      p3: { playerId: 'p3', roundsWon: 0, cardsCollected: 0, isEliminated: false, isThulla: false },
+    },
+  });
+  assert.equal(BhabhiEngine.nextPlayer(state, 'p1'), 'p3', 'three-player turn should move left');
 }
 
 function testEliminationAndMatchEnd() {
@@ -84,7 +107,7 @@ function testEliminationAndMatchEnd() {
 }
 
 function run() {
-  const cases = [testBuildDeck, testValidateMove, testApplyMoveAndTimeout, testEliminationAndMatchEnd];
+  const cases = [testBuildDeck, testSixPlayerDistribution, testValidateMove, testApplyMoveAndTimeout, testTurnMovesLeftForThreePlayers, testEliminationAndMatchEnd];
   for (const fn of cases) fn();
   console.log(`BhabhiEngine tests passed (${cases.length})`);
 }

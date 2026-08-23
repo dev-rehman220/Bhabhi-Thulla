@@ -17,6 +17,10 @@ export class RoomManager {
   createRoom(host: Player, settings: Partial<RoomSettings>): GameRoom {
     const roomId = uuid();
     const inviteCode = Math.random().toString(36).substring(2, 8).toUpperCase();
+    const requestedMaxPlayers = Number(settings.maxPlayers);
+    const maxPlayers: RoomSettings['maxPlayers'] = [2, 3, 4, 5, 6].includes(requestedMaxPlayers)
+      ? requestedMaxPlayers as RoomSettings['maxPlayers']
+      : 4;
 
     const room: GameRoom = {
       id: roomId,
@@ -26,7 +30,7 @@ export class RoomManager {
       spectators: [],
       status: 'lobby',
       settings: {
-        maxPlayers: settings.maxPlayers ?? 4,
+        maxPlayers,
         allowGuests: settings.allowGuests ?? true,
         isPrivate: settings.isPrivate ?? false,
         aiPlayerCount: settings.aiPlayerCount ?? 0,
@@ -102,6 +106,11 @@ export class RoomManager {
     const deck = BhabhiEngine.buildDeck();
     const playerIds = room.players.map((p) => p.id);
     const hands = BhabhiEngine.dealCards(playerIds, deck);
+    room.players.forEach((player) => {
+      player.hand = [];
+      player.handCount = hands[player.id].length;
+      player.status = 'active';
+    });
 
     const scores: MatchState['scores'] = {};
     playerIds.forEach((id) => {

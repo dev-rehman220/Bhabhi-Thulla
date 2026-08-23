@@ -7,7 +7,7 @@ import Animated, {
   runOnJS,
 } from 'react-native-reanimated';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
-import { CardShape } from '~/engine/types';
+import { CardShape } from '../../engine/types';
 
 type CompatibleCard = CardShape | { id: string; suit: string; value: string | number };
 
@@ -85,10 +85,7 @@ export default function PlayingCard({ card, faceUp = true, playable = false, onP
   return (
     <GestureDetector gesture={Gesture.Simultaneous(pan, tap)}>
       <Animated.View style={[styles.card, animatedStyle]}>
-        <Text style={styles.rank}>{faceUp ? renderRank(card.value) : ''}</Text>
-        <Text style={[styles.suit, isRedSuit(card.suit) ? styles.redSuit : styles.blackSuit]}>
-          {faceUp ? renderSuit(card.suit) : ''}
-        </Text>
+        {faceUp ? <><Text style={styles.rank}>{renderRank(card.value)}</Text><Text style={[styles.suit, isRedSuit(card.suit) ? styles.redSuit : styles.blackSuit]}>{renderSuit(card.suit)}</Text></> : <><Text style={styles.backMark}>✦</Text><Text style={styles.backLabel}>THULLA</Text></>}
       </Animated.View>
     </GestureDetector>
   );
@@ -145,4 +142,6 @@ const styles = StyleSheet.create({
   suit: { fontSize: 18, marginTop: 4 },
   redSuit: { color: '#8B0000' },
   blackSuit: { color: '#062e22' },
+  backMark: { color: '#FFD700', fontSize: 28, fontWeight: '800' },
+  backLabel: { color: '#FEFEE3', fontSize: 8, fontWeight: '900', letterSpacing: 1 },
 });

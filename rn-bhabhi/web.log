@@ -1,0 +1,378 @@
+
+> bhabhi-thulla@0.1.0 web
+> expo start --web
+
+Starting project at D:\Github Repo\Bhabhi-Thulla\rn-bhabhi
+Some dependencies are incompatible with the installed expo version:
+  @react-native-async-storage/async-storage@1.24.0 - expected version: 1.17.11
+  @shopify/flash-list@1.6.3 - expected version: 1.4.0
+  lottie-react-native@5.1.6 - expected version: 5.1.4
+  react-native-gesture-handler@2.31.2 - expected version: ~2.9.0
+  react-native-reanimated@3.19.5 - expected version: ~2.14.4
+  react-native-svg@13.14.1 - expected version: 13.4.0
+  @types/react@18.2.21 - expected version: ~18.0.27
+  typescript@5.9.3 - expected version: ^4.9.4
+Your project may not work correctly until you install the correct versions of the packages.
+Install individual packages by running npx expo install @react-native-async-storage/async-storage@1.17.11 @shopify/flash-list@1.4.0 lottie-react-native@5.1.4 react-native-gesture-handler@~2.9.0 react-native-reanimated@~2.14.4 react-native-svg@13.4.0 @types/react@~18.0.27 typescript@^4.9.4
+Starting Metro Bundler
+Starting Webpack on port 19006 in development mode.
+(node:11944) [DEP_WEBPACK_DEV_SERVER_CONSTRUCTOR] DeprecationWarning: Using 'compiler' as the first argument is deprecated. Please use 'options' as the first argument and 'compiler' as the second argument.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+(node:11944) [DEP_WEBPACK_DEV_SERVER_LISTEN] DeprecationWarning: 'listen' is deprecated. Please use the async 'start' or 'startCallback' method.
+Waiting on http://localhost:19000
+Logs for your project will appear below.
+[1m[31mERROR[39m[22m in [1mCrc [1m[31merror[39m[22m[1m - -1328676864 - 108558859[39m[22m
+
+[1mweb[39m[22m compiled with [1m[31m1 error[39m[22m
+[1mweb[39m[22m compiled [1m[32msuccessfully[39m[22m
+[1mweb[39m[22m compiled [1m[32msuccessfully[39m[22m
+[1mweb[39m[22m compiled [1m[32msuccessfully[39m[22m
+[1mweb[39m[22m compiled [1m[32msuccessfully[39m[22m
+[1m[31mERROR[39m[22m in [1m./App.tsx:12[39m[22m
+Module not found: Can't resolve './src/screens/MultiplayerTableScreen'
+[0m [90m 10 | [39m[36mimport[39m [33mGameOverScreen[39m [36mfrom[39m [32m'./src/screens/GameOverScreen'[39m[33m;[39m[0m
+[0m [90m 11 | [39m[36mimport[39m [33mLanLobbyScreen[39m [36mfrom[39m [32m'./src/screens/LanLobbyScreen'[39m[33m;[39m[0m
+[0m[31m[1m>[22m[39m[90m 12 | [39m[36mimport[39m [33mMultiplayerTableScreen[39m [36mfrom[39m [32m'./src/screens/MultiplayerTableScreen'[39m[33m;[39m[0m
+[0m [90m 13 | [39m[0m
+[0m [90m 14 | [39m[36mconst[39m [33mStack[39m [33m=[39m createNativeStackNavigator()[33m;[39m[0m
+[0m [90m 15 | [39m[36mexport[39m [36mdefault[39m [36mfunction[39m [33mApp[39m() { [36mreturn[39m [33m<[39m[33mGestureHandlerRootView[39m style[33m=[39m{{ flex[33m:[39m [35m1[39m }}[33m>[39m[33m<[39m[33mNavigationContainer[39m[33m>[39m[33m<[39m[33mStack[39m[33m.[39m[33mNavigator[39m initialRouteName[33m=[39m[32m"Home"[39m screenOptions[33m=[39m{{ headerShown[33m:[39m [36mfalse[39m[33m,[39m animation[33m:[39m [32m'fade'[39m }}[33m>[39m[33m<[39m[33mStack[39m[33m.[39m[33mScreen[39m name[33m=[39m[32m"Home"[39m component[33m=[39m{[33mHomeScreen[39m} [35m/><Stack.Screen name="HowToPlay" component={HowToPlayScreen} /[39m[33m>[39m[33m<[39m[33mStack[39m[33m.[39m[33mScreen[39m name[33m=[39m[32m"Settings"[39m component[33m=[39m{[33mSettingsScreen[39m} [35m/><Stack.Screen name="Statistics" component={StatisticsScreen} /[39m[33m>[39m[33m<[39m[33mStack[39m[33m.[39m[33mScreen[39m name[33m=[39m[32m"Game"[39m component[33m=[39m{[33mGameScreen[39m} [35m/><Stack.Screen name="GameOver" component={GameOverScreen} /[39m[33m>[39m[33m<[39m[33mStack[39m[33m.[39m[33mScreen[39m name[33m=[39m[32m"LanLobby"[39m component[33m=[39m{[33mLanLobbyScreen[39m} [35m/><Stack.Screen name="MultiplayerTable" component={MultiplayerTableScreen} /[39m[33m>[39m[33m<[39m[33m/[39m[33mStack[39m[33m.[39m[33mNavigator[39m[33m>[39m[33m<[39m[33m/[39m[33mNavigationContainer[39m[33m>[39m[33m<[39m[33m/[39m[33mGestureHandlerRootView[39m[33m>[39m[33m;[39m }[0m
+
+[1m[31mERROR[39m[22m in [1m./src/services/socket.ts:3[39m[22m
+Module not found: Can't resolve '~/engine/GameEngine'
+[0m [90m 1 | [39m[36mimport[39m ioClient [36mfrom[39m [32m'socket.io-client'[39m[33m;[39m[0m
+[0m [90m 2 | [39m[36mimport[39m [33mConstants[39m [36mfrom[39m [32m'expo-constants'[39m[33m;[39m[0m
+[0m[31m[1m>[22m[39m[90m 3 | [39m[36mimport[39m { [33mClientGameEngine[39m } [36mfrom[39m [32m'~/engine/GameEngine'[39m[33m;[39m[0m
+[0m [90m 4 | [39m[36mimport[39m { useGameStore } [36mfrom[39m [32m'~/store/gameStore'[39m[33m;[39m[0m
+[0m [90m 5 | [39m[0m
+[0m [90m 6 | [39m[36mfunction[39m getLanHost()[33m:[39m string [33m|[39m [36mnull[39m {[0m
+
+[1m[31mERROR[39m[22m in [1m./src/services/socket.ts:4[39m[22m
+Module not found: Can't resolve '~/store/gameStore'
+[0m [90m 2 | [39m[36mimport[39m [33mConstants[39m [36mfrom[39m [32m'expo-constants'[39m[33m;[39m[0m
+[0m [90m 3 | [39m[36mimport[39m { [33mClientGameEngine[39m } [36mfrom[39m [32m'~/engine/GameEngine'[39m[33m;[39m[0m
+[0m[31m[1m>[22m[39m[90m 4 | [39m[36mimport[39m { useGameStore } [36mfrom[39m [32m'~/store/gameStore'[39m[33m;[39m[0m
+[0m [90m 5 | [39m[0m
+[0m [90m 6 | [39m[36mfunction[39m getLanHost()[33m:[39m string [33m|[39m [36mnull[39m {[0m
+[0m [90m 7 | [39m  [36mconst[39m anyConstants [33m=[39m [33mConstants[39m [36mas[39m any[33m;[39m[0m
+
+[1mweb[39m[22m compiled with [1m[31m3 errors[39m[22m
+[1m[31mERROR[39m[22m in [1m./App.tsx:12[39m[22m
+Module not found: Can't resolve './src/screens/MultiplayerTableScreen'
+[0m [90m 10 | [39m[36mimport[39m [33mGameOverScreen[39m [36mfrom[39m [32m'./src/screens/GameOverScreen'[39m[33m;[39m[0m
+[0m [90m 11 | [39m[36mimport[39m [33mLanLobbyScreen[39m [36mfrom[39m [32m'./src/screens/LanLobbyScreen'[39m[33m;[39m[0m
+[0m[31m[1m>[22m[39m[90m 12 | [39m[36mimport[39m [33mMultiplayerTableScreen[39m [36mfrom[39m [32m'./src/screens/MultiplayerTableScreen'[39m[33m;[39m[0m
+[0m [90m 13 | [39m[0m
+[0m [90m 14 | [39m[36mconst[39m [33mStack[39m [33m=[39m createNativeStackNavigator()[33m;[39m[0m
+[0m [90m 15 | [39m[36mexport[39m [36mdefault[39m [36mfunction[39m [33mApp[39m() { [36mreturn[39m [33m<[39m[33mGestureHandlerRootView[39m style[33m=[39m{{ flex[33m:[39m [35m1[39m }}[33m>[39m[33m<[39m[33mNavigationContainer[39m[33m>[39m[33m<[39m[33mStack[39m[33m.[39m[33mNavigator[39m initialRouteName[33m=[39m[32m"Home"[39m screenOptions[33m=[39m{{ headerShown[33m:[39m [36mfalse[39m[33m,[39m animation[33m:[39m [32m'fade'[39m }}[33m>[39m[33m<[39m[33mStack[39m[33m.[39m[33mScreen[39m name[33m=[39m[32m"Home"[39m component[33m=[39m{[33mHomeScreen[39m} [35m/><Stack.Screen name="HowToPlay" component={HowToPlayScreen} /[39m[33m>[39m[33m<[39m[33mStack[39m[33m.[39m[33mScreen[39m name[33m=[39m[32m"Settings"[39m component[33m=[39m{[33mSettingsScreen[39m} [35m/><Stack.Screen name="Statistics" component={StatisticsScreen} /[39m[33m>[39m[33m<[39m[33mStack[39m[33m.[39m[33mScreen[39m name[33m=[39m[32m"Game"[39m component[33m=[39m{[33mGameScreen[39m} [35m/><Stack.Screen name="GameOver" component={GameOverScreen} /[39m[33m>[39m[33m<[39m[33mStack[39m[33m.[39m[33mScreen[39m name[33m=[39m[32m"LanLobby"[39m component[33m=[39m{[33mLanLobbyScreen[39m} [35m/><Stack.Screen name="MultiplayerTable" component={MultiplayerTableScreen} /[39m[33m>[39m[33m<[39m[33m/[39m[33mStack[39m[33m.[39m[33mNavigator[39m[33m>[39m[33m<[39m[33m/[39m[33mNavigationContainer[39m[33m>[39m[33m<[39m[33m/[39m[33mGestureHandlerRootView[39m[33m>[39m[33m;[39m }[0m
+
+[1m[31mERROR[39m[22m in [1m./src/services/socket.ts:3[39m[22m
+Module not found: Can't resolve '~/engine/GameEngine'
+[0m [90m 1 | [39m[36mimport[39m ioClient [36mfrom[39m [32m'socket.io-client'[39m[33m;[39m[0m
+[0m [90m 2 | [39m[36mimport[39m [33mConstants[39m [36mfrom[39m [32m'expo-constants'[39m[33m;[39m[0m
+[0m[31m[1m>[22m[39m[90m 3 | [39m[36mimport[39m { [33mClientGameEngine[39m } [36mfrom[39m [32m'~/engine/GameEngine'[39m[33m;[39m[0m
+[0m [90m 4 | [39m[36mimport[39m { useGameStore } [36mfrom[39m [32m'~/store/gameStore'[39m[33m;[39m[0m
+[0m [90m 5 | [39m[0m
+[0m [90m 6 | [39m[36mfunction[39m getLanHost()[33m:[39m string [33m|[39m [36mnull[39m {[0m
+
+[1m[31mERROR[39m[22m in [1m./src/services/socket.ts:4[39m[22m
+Module not found: Can't resolve '~/store/gameStore'
+[0m [90m 2 | [39m[36mimport[39m [33mConstants[39m [36mfrom[39m [32m'expo-constants'[39m[33m;[39m[0m
+[0m [90m 3 | [39m[36mimport[39m { [33mClientGameEngine[39m } [36mfrom[39m [32m'~/engine/GameEngine'[39m[33m;[39m[0m
+[0m[31m[1m>[22m[39m[90m 4 | [39m[36mimport[39m { useGameStore } [36mfrom[39m [32m'~/store/gameStore'[39m[33m;[39m[0m
+[0m [90m 5 | [39m[0m
+[0m [90m 6 | [39m[36mfunction[39m getLanHost()[33m:[39m string [33m|[39m [36mnull[39m {[0m
+[0m [90m 7 | [39m  [36mconst[39m anyConstants [33m=[39m [33mConstants[39m [36mas[39m any[33m;[39m[0m
+
+[1mweb[39m[22m compiled with [1m[31m3 errors[39m[22m
+[1m[31mERROR[39m[22m in [1m./App.tsx:12[39m[22m
+Module not found: Can't resolve './src/screens/MultiplayerTableScreen'
+[0m [90m 10 | [39m[36mimport[39m [33mGameOverScreen[39m [36mfrom[39m [32m'./src/screens/GameOverScreen'[39m[33m;[39m[0m
+[0m [90m 11 | [39m[36mimport[39m [33mLanLobbyScreen[39m [36mfrom[39m [32m'./src/screens/LanLobbyScreen'[39m[33m;[39m[0m
+[0m[31m[1m>[22m[39m[90m 12 | [39m[36mimport[39m [33mMultiplayerTableScreen[39m [36mfrom[39m [32m'./src/screens/MultiplayerTableScreen'[39m[33m;[39m[0m
+[0m [90m 13 | [39m[0m
+[0m [90m 14 | [39m[36mconst[39m [33mStack[39m [33m=[39m createNativeStackNavigator()[33m;[39m[0m
+[0m [90m 15 | [39m[36mexport[39m [36mdefault[39m [36mfunction[39m [33mApp[39m() { [36mreturn[39m [33m<[39m[33mGestureHandlerRootView[39m style[33m=[39m{{ flex[33m:[39m [35m1[39m }}[33m>[39m[33m<[39m[33mNavigationContainer[39m[33m>[39m[33m<[39m[33mStack[39m[33m.[39m[33mNavigator[39m initialRouteName[33m=[39m[32m"Home"[39m screenOptions[33m=[39m{{ headerShown[33m:[39m [36mfalse[39m[33m,[39m animation[33m:[39m [32m'fade'[39m }}[33m>[39m[33m<[39m[33mStack[39m[33m.[39m[33mScreen[39m name[33m=[39m[32m"Home"[39m component[33m=[39m{[33mHomeScreen[39m} [35m/><Stack.Screen name="HowToPlay" component={HowToPlayScreen} /[39m[33m>[39m[33m<[39m[33mStack[39m[33m.[39m[33mScreen[39m name[33m=[39m[32m"Settings"[39m component[33m=[39m{[33mSettingsScreen[39m} [35m/><Stack.Screen name="Statistics" component={StatisticsScreen} /[39m[33m>[39m[33m<[39m[33mStack[39m[33m.[39m[33mScreen[39m name[33m=[39m[32m"Game"[39m component[33m=[39m{[33mGameScreen[39m} [35m/><Stack.Screen name="GameOver" component={GameOverScreen} /[39m[33m>[39m[33m<[39m[33mStack[39m[33m.[39m[33mScreen[39m name[33m=[39m[32m"LanLobby"[39m component[33m=[39m{[33mLanLobbyScreen[39m} [35m/><Stack.Screen name="MultiplayerTable" component={MultiplayerTableScreen} /[39m[33m>[39m[33m<[39m[33m/[39m[33mStack[39m[33m.[39m[33mNavigator[39m[33m>[39m[33m<[39m[33m/[39m[33mNavigationContainer[39m[33m>[39m[33m<[39m[33m/[39m[33mGestureHandlerRootView[39m[33m>[39m[33m;[39m }[0m
+
+[1m[31mERROR[39m[22m in [1m./src/services/socket.ts:3[39m[22m
+Module not found: Can't resolve '~/engine/GameEngine'
+[0m [90m 1 | [39m[36mimport[39m ioClient [36mfrom[39m [32m'socket.io-client'[39m[33m;[39m[0m
+[0m [90m 2 | [39m[36mimport[39m [33mConstants[39m [36mfrom[39m [32m'expo-constants'[39m[33m;[39m[0m
+[0m[31m[1m>[22m[39m[90m 3 | [39m[36mimport[39m { [33mClientGameEngine[39m } [36mfrom[39m [32m'~/engine/GameEngine'[39m[33m;[39m[0m
+[0m [90m 4 | [39m[36mimport[39m { useGameStore } [36mfrom[39m [32m'~/store/gameStore'[39m[33m;[39m[0m
+[0m [90m 5 | [39m[0m
+[0m [90m 6 | [39m[36mfunction[39m getLanHost()[33m:[39m string [33m|[39m [36mnull[39m {[0m
+
+[1m[31mERROR[39m[22m in [1m./src/services/socket.ts:4[39m[22m
+Module not found: Can't resolve '~/store/gameStore'
+[0m [90m 2 | [39m[36mimport[39m [33mConstants[39m [36mfrom[39m [32m'expo-constants'[39m[33m;[39m[0m
+[0m [90m 3 | [39m[36mimport[39m { [33mClientGameEngine[39m } [36mfrom[39m [32m'~/engine/GameEngine'[39m[33m;[39m[0m
+[0m[31m[1m>[22m[39m[90m 4 | [39m[36mimport[39m { useGameStore } [36mfrom[39m [32m'~/store/gameStore'[39m[33m;[39m[0m
+[0m [90m 5 | [39m[0m
+[0m [90m 6 | [39m[36mfunction[39m getLanHost()[33m:[39m string [33m|[39m [36mnull[39m {[0m
+[0m [90m 7 | [39m  [36mconst[39m anyConstants [33m=[39m [33mConstants[39m [36mas[39m any[33m;[39m[0m
+
+[1mweb[39m[22m compiled with [1m[31m3 errors[39m[22m
+[1m[31mERROR[39m[22m in [1m./src/screens/table.tsx:4[39m[22m
+Module not found: Can't resolve '~/components/cards/PlayingCard'
+[0m [90m 2 | [39m[36mimport[39m { [33mDimensions[39m[33m,[39m [33mStyleSheet[39m[33m,[39m [33mText[39m[33m,[39m [33mTouchableOpacity[39m[33m,[39m [33mView[39m } [36mfrom[39m [32m'react-native'[39m[33m;[39m[0m
+[0m [90m 3 | [39m[36mimport[39m [33mAnimated[39m[33m,[39m { [33mFadeIn[39m[33m,[39m [33mFadeOut[39m } [36mfrom[39m [32m'react-native-reanimated'[39m[33m;[39m[0m
+[0m[31m[1m>[22m[39m[90m 4 | [39m[36mimport[39m [33mPlayingCard[39m [36mfrom[39m [32m'~/components/cards/PlayingCard'[39m[33m;[39m[0m
+[0m [90m 5 | [39m[36mimport[39m { socketManager } [36mfrom[39m [32m'~/services/socket'[39m[33m;[39m[0m
+[0m [90m 6 | [39m[36mimport[39m { useGameStore } [36mfrom[39m [32m'~/store/gameStore'[39m[33m;[39m[0m
+[0m [90m 7 | [39m[36mimport[39m { [33mEMOJIS[39m } [36mfrom[39m [32m'../../shared/constants/game.constants'[39m[33m;[39m[0m
+
+[1m[31mERROR[39m[22m in [1m./src/screens/table.tsx:5[39m[22m
+Module not found: Can't resolve '~/services/socket'
+[0m [90m 3 | [39m[36mimport[39m [33mAnimated[39m[33m,[39m { [33mFadeIn[39m[33m,[39m [33mFadeOut[39m } [36mfrom[39m [32m'react-native-reanimated'[39m[33m;[39m[0m
+[0m [90m 4 | [39m[36mimport[39m [33mPlayingCard[39m [36mfrom[39m [32m'~/components/cards/PlayingCard'[39m[33m;[39m[0m
+[0m[31m[1m>[22m[39m[90m 5 | [39m[36mimport[39m { socketManager } [36mfrom[39m [32m'~/services/socket'[39m[33m;[39m[0m
+[0m [90m 6 | [39m[36mimport[39m { useGameStore } [36mfrom[39m [32m'~/store/gameStore'[39m[33m;[39m[0m
+[0m [90m 7 | [39m[36mimport[39m { [33mEMOJIS[39m } [36mfrom[39m [32m'../../shared/constants/game.constants'[39m[33m;[39m[0m
+[0m [90m 8 | [39m[0m
+
+[1m[31mERROR[39m[22m in [1m./src/screens/table.tsx:6[39m[22m
+Module not found: Can't resolve '~/store/gameStore'
+[0m [90m 4 | [39m[36mimport[39m [33mPlayingCard[39m [36mfrom[39m [32m'~/components/cards/PlayingCard'[39m[33m;[39m[0m
+[0m [90m 5 | [39m[36mimport[39m { socketManager } [36mfrom[39m [32m'~/services/socket'[39m[33m;[39m[0m
+[0m[31m[1m>[22m[39m[90m 6 | [39m[36mimport[39m { useGameStore } [36mfrom[39m [32m'~/store/gameStore'[39m[33m;[39m[0m
+[0m [90m 7 | [39m[36mimport[39m { [33mEMOJIS[39m } [36mfrom[39m [32m'../../shared/constants/game.constants'[39m[33m;[39m[0m
+[0m [90m 8 | [39m[0m
+[0m [90m 9 | [39m[36mconst[39m { width[33m:[39m [33mW[39m[33m,[39m height[33m:[39m [33mH[39m } [33m=[39m [33mDimensions[39m[33m.[39m[36mget[39m([32m'window'[39m)[33m;[39m[0m
+
+[1m[31mERROR[39m[22m in [1m./src/services/socket.ts:3[39m[22m
+Module not found: Can't resolve '~/engine/GameEngine'
+[0m [90m 1 | [39m[36mimport[39m ioClient [36mfrom[39m [32m'socket.io-client'[39m[33m;[39m[0m
+[0m [90m 2 | [39m[36mimport[39m [33mConstants[39m [36mfrom[39m [32m'expo-constants'[39m[33m;[39m[0m
+[0m[31m[1m>[22m[39m[90m 3 | [39m[36mimport[39m { [33mClientGameEngine[39m } [36mfrom[39m [32m'~/engine/GameEngine'[39m[33m;[39m[0m
+[0m [90m 4 | [39m[36mimport[39m { useGameStore } [36mfrom[39m [32m'~/store/gameStore'[39m[33m;[39m[0m
+[0m [90m 5 | [39m[0m
+[0m [90m 6 | [39m[36mfunction[39m getLanHost()[33m:[39m string [33m|[39m [36mnull[39m {[0m
+
+[1m[31mERROR[39m[22m in [1m./src/services/socket.ts:4[39m[22m
+Module not found: Can't resolve '~/store/gameStore'
+[0m [90m 2 | [39m[36mimport[39m [33mConstants[39m [36mfrom[39m [32m'expo-constants'[39m[33m;[39m[0m
+[0m [90m 3 | [39m[36mimport[39m { [33mClientGameEngine[39m } [36mfrom[39m [32m'~/engine/GameEngine'[39m[33m;[39m[0m
+[0m[31m[1m>[22m[39m[90m 4 | [39m[36mimport[39m { useGameStore } [36mfrom[39m [32m'~/store/gameStore'[39m[33m;[39m[0m
+[0m [90m 5 | [39m[0m
+[0m [90m 6 | [39m[36mfunction[39m getLanHost()[33m:[39m string [33m|[39m [36mnull[39m {[0m
+[0m [90m 7 | [39m  [36mconst[39m anyConstants [33m=[39m [33mConstants[39m [36mas[39m any[33m;[39m[0m
+
+[1mweb[39m[22m compiled with [1m[31m5 errors[39m[22m
+[1m[31mERROR[39m[22m in [1m./src/screens/table.tsx:4[39m[22m
+Module not found: Can't resolve '~/components/cards/PlayingCard'
+[0m [90m 2 | [39m[36mimport[39m { [33mDimensions[39m[33m,[39m [33mStyleSheet[39m[33m,[39m [33mText[39m[33m,[39m [33mTouchableOpacity[39m[33m,[39m [33mView[39m } [36mfrom[39m [32m'react-native'[39m[33m;[39m[0m
+[0m [90m 3 | [39m[36mimport[39m [33mAnimated[39m[33m,[39m { [33mFadeIn[39m[33m,[39m [33mFadeOut[39m } [36mfrom[39m [32m'react-native-reanimated'[39m[33m;[39m[0m
+[0m[31m[1m>[22m[39m[90m 4 | [39m[36mimport[39m [33mPlayingCard[39m [36mfrom[39m [32m'~/components/cards/PlayingCard'[39m[33m;[39m[0m
+[0m [90m 5 | [39m[36mimport[39m { socketManager } [36mfrom[39m [32m'~/services/socket'[39m[33m;[39m[0m
+[0m [90m 6 | [39m[36mimport[39m { useGameStore } [36mfrom[39m [32m'~/store/gameStore'[39m[33m;[39m[0m
+[0m [90m 7 | [39m[36mimport[39m { [33mEMOJIS[39m } [36mfrom[39m [32m'../../shared/constants/game.constants'[39m[33m;[39m[0m
+
+[1m[31mERROR[39m[22m in [1m./src/screens/table.tsx:5[39m[22m
+Module not found: Can't resolve '~/services/socket'
+[0m [90m 3 | [39m[36mimport[39m [33mAnimated[39m[33m,[39m { [33mFadeIn[39m[33m,[39m [33mFadeOut[39m } [36mfrom[39m [32m'react-native-reanimated'[39m[33m;[39m[0m
+[0m [90m 4 | [39m[36mimport[39m [33mPlayingCard[39m [36mfrom[39m [32m'~/components/cards/PlayingCard'[39m[33m;[39m[0m
+[0m[31m[1m>[22m[39m[90m 5 | [39m[36mimport[39m { socketManager } [36mfrom[39m [32m'~/services/socket'[39m[33m;[39m[0m
+[0m [90m 6 | [39m[36mimport[39m { useGameStore } [36mfrom[39m [32m'~/store/gameStore'[39m[33m;[39m[0m
+[0m [90m 7 | [39m[36mimport[39m { [33mEMOJIS[39m } [36mfrom[39m [32m'../../shared/constants/game.constants'[39m[33m;[39m[0m
+[0m [90m 8 | [39m[0m
+
+[1m[31mERROR[39m[22m in [1m./src/screens/table.tsx:6[39m[22m
+Module not found: Can't resolve '~/store/gameStore'
+[0m [90m 4 | [39m[36mimport[39m [33mPlayingCard[39m [36mfrom[39m [32m'~/components/cards/PlayingCard'[39m[33m;[39m[0m
+[0m [90m 5 | [39m[36mimport[39m { socketManager } [36mfrom[39m [32m'~/services/socket'[39m[33m;[39m[0m
+[0m[31m[1m>[22m[39m[90m 6 | [39m[36mimport[39m { useGameStore } [36mfrom[39m [32m'~/store/gameStore'[39m[33m;[39m[0m
+[0m [90m 7 | [39m[36mimport[39m { [33mEMOJIS[39m } [36mfrom[39m [32m'../../shared/constants/game.constants'[39m[33m;[39m[0m
+[0m [90m 8 | [39m[0m
+[0m [90m 9 | [39m[36mconst[39m { width[33m:[39m [33mW[39m[33m,[39m height[33m:[39m [33mH[39m } [33m=[39m [33mDimensions[39m[33m.[39m[36mget[39m([32m'window'[39m)[33m;[39m[0m
+
+[1m[31mERROR[39m[22m in [1m./src/services/socket.ts:3[39m[22m
+Module not found: Can't resolve '~/engine/GameEngine'
+[0m [90m 1 | [39m[36mimport[39m ioClient [36mfrom[39m [32m'socket.io-client'[39m[33m;[39m[0m
+[0m [90m 2 | [39m[36mimport[39m [33mConstants[39m [36mfrom[39m [32m'expo-constants'[39m[33m;[39m[0m
+[0m[31m[1m>[22m[39m[90m 3 | [39m[36mimport[39m { [33mClientGameEngine[39m } [36mfrom[39m [32m'~/engine/GameEngine'[39m[33m;[39m[0m
+[0m [90m 4 | [39m[36mimport[39m { useGameStore } [36mfrom[39m [32m'~/store/gameStore'[39m[33m;[39m[0m
+[0m [90m 5 | [39m[0m
+[0m [90m 6 | [39m[36mfunction[39m getLanHost()[33m:[39m string [33m|[39m [36mnull[39m {[0m
+
+[1m[31mERROR[39m[22m in [1m./src/services/socket.ts:4[39m[22m
+Module not found: Can't resolve '~/store/gameStore'
+[0m [90m 2 | [39m[36mimport[39m [33mConstants[39m [36mfrom[39m [32m'expo-constants'[39m[33m;[39m[0m
+[0m [90m 3 | [39m[36mimport[39m { [33mClientGameEngine[39m } [36mfrom[39m [32m'~/engine/GameEngine'[39m[33m;[39m[0m
+[0m[31m[1m>[22m[39m[90m 4 | [39m[36mimport[39m { useGameStore } [36mfrom[39m [32m'~/store/gameStore'[39m[33m;[39m[0m
+[0m [90m 5 | [39m[0m
+[0m [90m 6 | [39m[36mfunction[39m getLanHost()[33m:[39m string [33m|[39m [36mnull[39m {[0m
+[0m [90m 7 | [39m  [36mconst[39m anyConstants [33m=[39m [33mConstants[39m [36mas[39m any[33m;[39m[0m
+
+[1mweb[39m[22m compiled with [1m[31m5 errors[39m[22m
+[1m[31mERROR[39m[22m in [1m./src/screens/table.tsx:4[39m[22m
+Module not found: Can't resolve '~/components/cards/PlayingCard'
+[0m [90m 2 | [39m[36mimport[39m { [33mDimensions[39m[33m,[39m [33mStyleSheet[39m[33m,[39m [33mText[39m[33m,[39m [33mTouchableOpacity[39m[33m,[39m [33mView[39m } [36mfrom[39m [32m'react-native'[39m[33m;[39m[0m
+[0m [90m 3 | [39m[36mimport[39m [33mAnimated[39m[33m,[39m { [33mFadeIn[39m[33m,[39m [33mFadeOut[39m } [36mfrom[39m [32m'react-native-reanimated'[39m[33m;[39m[0m
+[0m[31m[1m>[22m[39m[90m 4 | [39m[36mimport[39m [33mPlayingCard[39m [36mfrom[39m [32m'~/components/cards/PlayingCard'[39m[33m;[39m[0m
+[0m [90m 5 | [39m[36mimport[39m { socketManager } [36mfrom[39m [32m'~/services/socket'[39m[33m;[39m[0m
+[0m [90m 6 | [39m[36mimport[39m { useGameStore } [36mfrom[39m [32m'~/store/gameStore'[39m[33m;[39m[0m
+[0m [90m 7 | [39m[36mimport[39m { [33mEMOJIS[39m } [36mfrom[39m [32m'../../shared/constants/game.constants'[39m[33m;[39m[0m
+
+[1m[31mERROR[39m[22m in [1m./src/screens/table.tsx:5[39m[22m
+Module not found: Can't resolve '~/services/socket'
+[0m [90m 3 | [39m[36mimport[39m [33mAnimated[39m[33m,[39m { [33mFadeIn[39m[33m,[39m [33mFadeOut[39m } [36mfrom[39m [32m'react-native-reanimated'[39m[33m;[39m[0m
+[0m [90m 4 | [39m[36mimport[39m [33mPlayingCard[39m [36mfrom[39m [32m'~/components/cards/PlayingCard'[39m[33m;[39m[0m
+[0m[31m[1m>[22m[39m[90m 5 | [39m[36mimport[39m { socketManager } [36mfrom[39m [32m'~/services/socket'[39m[33m;[39m[0m
+[0m [90m 6 | [39m[36mimport[39m { useGameStore } [36mfrom[39m [32m'~/store/gameStore'[39m[33m;[39m[0m
+[0m [90m 7 | [39m[36mimport[39m { [33mEMOJIS[39m } [36mfrom[39m [32m'../../shared/constants/game.constants'[39m[33m;[39m[0m
+[0m [90m 8 | [39m[0m
+
+[1m[31mERROR[39m[22m in [1m./src/screens/table.tsx:6[39m[22m
+Module not found: Can't resolve '~/store/gameStore'
+[0m [90m 4 | [39m[36mimport[39m [33mPlayingCard[39m [36mfrom[39m [32m'~/components/cards/PlayingCard'[39m[33m;[39m[0m
+[0m [90m 5 | [39m[36mimport[39m { socketManager } [36mfrom[39m [32m'~/services/socket'[39m[33m;[39m[0m
+[0m[31m[1m>[22m[39m[90m 6 | [39m[36mimport[39m { useGameStore } [36mfrom[39m [32m'~/store/gameStore'[39m[33m;[39m[0m
+[0m [90m 7 | [39m[36mimport[39m { [33mEMOJIS[39m } [36mfrom[39m [32m'../../shared/constants/game.constants'[39m[33m;[39m[0m
+[0m [90m 8 | [39m[0m
+[0m [90m 9 | [39m[36mconst[39m { width[33m:[39m [33mW[39m[33m,[39m height[33m:[39m [33mH[39m } [33m=[39m [33mDimensions[39m[33m.[39m[36mget[39m([32m'window'[39m)[33m;[39m[0m
+
+[1m[31mERROR[39m[22m in [1m./src/services/socket.ts:3[39m[22m
+Module not found: Can't resolve '~/engine/GameEngine'
+[0m [90m 1 | [39m[36mimport[39m ioClient [36mfrom[39m [32m'socket.io-client'[39m[33m;[39m[0m
+[0m [90m 2 | [39m[36mimport[39m [33mConstants[39m [36mfrom[39m [32m'expo-constants'[39m[33m;[39m[0m
+[0m[31m[1m>[22m[39m[90m 3 | [39m[36mimport[39m { [33mClientGameEngine[39m } [36mfrom[39m [32m'~/engine/GameEngine'[39m[33m;[39m[0m
+[0m [90m 4 | [39m[36mimport[39m { useGameStore } [36mfrom[39m [32m'~/store/gameStore'[39m[33m;[39m[0m
+[0m [90m 5 | [39m[0m
+[0m [90m 6 | [39m[36mfunction[39m getLanHost()[33m:[39m string [33m|[39m [36mnull[39m {[0m
+
+[1m[31mERROR[39m[22m in [1m./src/services/socket.ts:4[39m[22m
+Module not found: Can't resolve '~/store/gameStore'
+[0m [90m 2 | [39m[36mimport[39m [33mConstants[39m [36mfrom[39m [32m'expo-constants'[39m[33m;[39m[0m
+[0m [90m 3 | [39m[36mimport[39m { [33mClientGameEngine[39m } [36mfrom[39m [32m'~/engine/GameEngine'[39m[33m;[39m[0m
+[0m[31m[1m>[22m[39m[90m 4 | [39m[36mimport[39m { useGameStore } [36mfrom[39m [32m'~/store/gameStore'[39m[33m;[39m[0m
+[0m [90m 5 | [39m[0m
+[0m [90m 6 | [39m[36mfunction[39m getLanHost()[33m:[39m string [33m|[39m [36mnull[39m {[0m
+[0m [90m 7 | [39m  [36mconst[39m anyConstants [33m=[39m [33mConstants[39m [36mas[39m any[33m;[39m[0m
+
+[1mweb[39m[22m compiled with [1m[31m5 errors[39m[22m
+[1m[31mERROR[39m[22m in [1m./src/screens/table.tsx:4[39m[22m
+Module not found: Can't resolve '~/components/cards/PlayingCard'
+[0m [90m 2 | [39m[36mimport[39m { [33mDimensions[39m[33m,[39m [33mStyleSheet[39m[33m,[39m [33mText[39m[33m,[39m [33mTouchableOpacity[39m[33m,[39m [33mView[39m } [36mfrom[39m [32m'react-native'[39m[33m;[39m[0m
+[0m [90m 3 | [39m[36mimport[39m [33mAnimated[39m[33m,[39m { [33mFadeIn[39m[33m,[39m [33mFadeOut[39m } [36mfrom[39m [32m'react-native-reanimated'[39m[33m;[39m[0m
+[0m[31m[1m>[22m[39m[90m 4 | [39m[36mimport[39m [33mPlayingCard[39m [36mfrom[39m [32m'~/components/cards/PlayingCard'[39m[33m;[39m[0m
+[0m [90m 5 | [39m[36mimport[39m { socketManager } [36mfrom[39m [32m'~/services/socket'[39m[33m;[39m[0m
+[0m [90m 6 | [39m[36mimport[39m { useGameStore } [36mfrom[39m [32m'~/store/gameStore'[39m[33m;[39m[0m
+[0m [90m 7 | [39m[36mimport[39m { [33mEMOJIS[39m } [36mfrom[39m [32m'../../shared/constants/game.constants'[39m[33m;[39m[0m
+
+[1m[31mERROR[39m[22m in [1m./src/screens/table.tsx:5[39m[22m
+Module not found: Can't resolve '~/services/socket'
+[0m [90m 3 | [39m[36mimport[39m [33mAnimated[39m[33m,[39m { [33mFadeIn[39m[33m,[39m [33mFadeOut[39m } [36mfrom[39m [32m'react-native-reanimated'[39m[33m;[39m[0m
+[0m [90m 4 | [39m[36mimport[39m [33mPlayingCard[39m [36mfrom[39m [32m'~/components/cards/PlayingCard'[39m[33m;[39m[0m
+[0m[31m[1m>[22m[39m[90m 5 | [39m[36mimport[39m { socketManager } [36mfrom[39m [32m'~/services/socket'[39m[33m;[39m[0m
+[0m [90m 6 | [39m[36mimport[39m { useGameStore } [36mfrom[39m [32m'~/store/gameStore'[39m[33m;[39m[0m
+[0m [90m 7 | [39m[36mimport[39m { [33mEMOJIS[39m } [36mfrom[39m [32m'../../shared/constants/game.constants'[39m[33m;[39m[0m
+[0m [90m 8 | [39m[0m
+
+[1m[31mERROR[39m[22m in [1m./src/screens/table.tsx:6[39m[22m
+Module not found: Can't resolve '~/store/gameStore'
+[0m [90m 4 | [39m[36mimport[39m [33mPlayingCard[39m [36mfrom[39m [32m'~/components/cards/PlayingCard'[39m[33m;[39m[0m
+[0m [90m 5 | [39m[36mimport[39m { socketManager } [36mfrom[39m [32m'~/services/socket'[39m[33m;[39m[0m
+[0m[31m[1m>[22m[39m[90m 6 | [39m[36mimport[39m { useGameStore } [36mfrom[39m [32m'~/store/gameStore'[39m[33m;[39m[0m
+[0m [90m 7 | [39m[36mimport[39m { [33mEMOJIS[39m } [36mfrom[39m [32m'../../shared/constants/game.constants'[39m[33m;[39m[0m
+[0m [90m 8 | [39m[0m
+[0m [90m 9 | [39m[36mconst[39m { width[33m:[39m [33mW[39m[33m,[39m height[33m:[39m [33mH[39m } [33m=[39m [33mDimensions[39m[33m.[39m[36mget[39m([32m'window'[39m)[33m;[39m[0m
+
+[1m[31mERROR[39m[22m in [1m./src/services/socket.ts:3[39m[22m
+Module not found: Can't resolve '~/engine/GameEngine'
+[0m [90m 1 | [39m[36mimport[39m ioClient [36mfrom[39m [32m'socket.io-client'[39m[33m;[39m[0m
+[0m [90m 2 | [39m[36mimport[39m [33mConstants[39m [36mfrom[39m [32m'expo-constants'[39m[33m;[39m[0m
+[0m[31m[1m>[22m[39m[90m 3 | [39m[36mimport[39m { [33mClientGameEngine[39m } [36mfrom[39m [32m'~/engine/GameEngine'[39m[33m;[39m[0m
+[0m [90m 4 | [39m[36mimport[39m { useGameStore } [36mfrom[39m [32m'~/store/gameStore'[39m[33m;[39m[0m
+[0m [90m 5 | [39m[0m
+[0m [90m 6 | [39m[36mfunction[39m getLanHost()[33m:[39m string [33m|[39m [36mnull[39m {[0m
+
+[1m[31mERROR[39m[22m in [1m./src/services/socket.ts:4[39m[22m
+Module not found: Can't resolve '~/store/gameStore'
+[0m [90m 2 | [39m[36mimport[39m [33mConstants[39m [36mfrom[39m [32m'expo-constants'[39m[33m;[39m[0m
+[0m [90m 3 | [39m[36mimport[39m { [33mClientGameEngine[39m } [36mfrom[39m [32m'~/engine/GameEngine'[39m[33m;[39m[0m
+[0m[31m[1m>[22m[39m[90m 4 | [39m[36mimport[39m { useGameStore } [36mfrom[39m [32m'~/store/gameStore'[39m[33m;[39m[0m
+[0m [90m 5 | [39m[0m
+[0m [90m 6 | [39m[36mfunction[39m getLanHost()[33m:[39m string [33m|[39m [36mnull[39m {[0m
+[0m [90m 7 | [39m  [36mconst[39m anyConstants [33m=[39m [33mConstants[39m [36mas[39m any[33m;[39m[0m
+
+[1mweb[39m[22m compiled with [1m[31m5 errors[39m[22m
+[1m[31mERROR[39m[22m in [1m./src/screens/table.tsx:4[39m[22m
+Module not found: Can't resolve '~/components/cards/PlayingCard'
+[0m [90m 2 | [39m[36mimport[39m { [33mDimensions[39m[33m,[39m [33mStyleSheet[39m[33m,[39m [33mText[39m[33m,[39m [33mTouchableOpacity[39m[33m,[39m [33mView[39m } [36mfrom[39m [32m'react-native'[39m[33m;[39m[0m
+[0m [90m 3 | [39m[36mimport[39m [33mAnimated[39m[33m,[39m { [33mFadeIn[39m[33m,[39m [33mFadeOut[39m } [36mfrom[39m [32m'react-native-reanimated'[39m[33m;[39m[0m
+[0m[31m[1m>[22m[39m[90m 4 | [39m[36mimport[39m [33mPlayingCard[39m [36mfrom[39m [32m'~/components/cards/PlayingCard'[39m[33m;[39m[0m
+[0m [90m 5 | [39m[36mimport[39m { socketManager } [36mfrom[39m [32m'~/services/socket'[39m[33m;[39m[0m
+[0m [90m 6 | [39m[36mimport[39m { useGameStore } [36mfrom[39m [32m'~/store/gameStore'[39m[33m;[39m[0m
+[0m [90m 7 | [39m[36mimport[39m { [33mEMOJIS[39m } [36mfrom[39m [32m'../../shared/constants/game.constants'[39m[33m;[39m[0m
+
+[1m[31mERROR[39m[22m in [1m./src/screens/table.tsx:5[39m[22m
+Module not found: Can't resolve '~/services/socket'
+[0m [90m 3 | [39m[36mimport[39m [33mAnimated[39m[33m,[39m { [33mFadeIn[39m[33m,[39m [33mFadeOut[39m } [36mfrom[39m [32m'react-native-reanimated'[39m[33m;[39m[0m
+[0m [90m 4 | [39m[36mimport[39m [33mPlayingCard[39m [36mfrom[39m [32m'~/components/cards/PlayingCard'[39m[33m;[39m[0m
+[0m[31m[1m>[22m[39m[90m 5 | [39m[36mimport[39m { socketManager } [36mfrom[39m [32m'~/services/socket'[39m[33m;[39m[0m
+[0m [90m 6 | [39m[36mimport[39m { useGameStore } [36mfrom[39m [32m'~/store/gameStore'[39m[33m;[39m[0m
+[0m [90m 7 | [39m[36mimport[39m { [33mEMOJIS[39m } [36mfrom[39m [32m'../../shared/constants/game.constants'[39m[33m;[39m[0m
+[0m [90m 8 | [39m[0m
+
+[1m[31mERROR[39m[22m in [1m./src/screens/table.tsx:6[39m[22m
+Module not found: Can't resolve '~/store/gameStore'
+[0m [90m 4 | [39m[36mimport[39m [33mPlayingCard[39m [36mfrom[39m [32m'~/components/cards/PlayingCard'[39m[33m;[39m[0m
+[0m [90m 5 | [39m[36mimport[39m { socketManager } [36mfrom[39m [32m'~/services/socket'[39m[33m;[39m[0m
+[0m[31m[1m>[22m[39m[90m 6 | [39m[36mimport[39m { useGameStore } [36mfrom[39m [32m'~/store/gameStore'[39m[33m;[39m[0m
+[0m [90m 7 | [39m[36mimport[39m { [33mEMOJIS[39m } [36mfrom[39m [32m'../../shared/constants/game.constants'[39m[33m;[39m[0m
+[0m [90m 8 | [39m[0m
+[0m [90m 9 | [39m[36mconst[39m { width[33m:[39m [33mW[39m[33m,[39m height[33m:[39m [33mH[39m } [33m=[39m [33mDimensions[39m[33m.[39m[36mget[39m([32m'window'[39m)[33m;[39m[0m
+
+[1m[31mERROR[39m[22m in [1m./src/services/socket.ts:3[39m[22m
+Module not found: Can't resolve '~/engine/GameEngine'
+[0m [90m 1 | [39m[36mimport[39m ioClient [36mfrom[39m [32m'socket.io-client'[39m[33m;[39m[0m
+[0m [90m 2 | [39m[36mimport[39m [33mConstants[39m [36mfrom[39m [32m'expo-constants'[39m[33m;[39m[0m
+[0m[31m[1m>[22m[39m[90m 3 | [39m[36mimport[39m { [33mClientGameEngine[39m } [36mfrom[39m [32m'~/engine/GameEngine'[39m[33m;[39m[0m
+[0m [90m 4 | [39m[36mimport[39m { useGameStore } [36mfrom[39m [32m'~/store/gameStore'[39m[33m;[39m[0m
+[0m [90m 5 | [39m[0m
+[0m [90m 6 | [39m[36mfunction[39m getLanHost()[33m:[39m string [33m|[39m [36mnull[39m {[0m
+
+[1m[31mERROR[39m[22m in [1m./src/services/socket.ts:4[39m[22m
+Module not found: Can't resolve '~/store/gameStore'
+[0m [90m 2 | [39m[36mimport[39m [33mConstants[39m [36mfrom[39m [32m'expo-constants'[39m[33m;[39m[0m
+[0m [90m 3 | [39m[36mimport[39m { [33mClientGameEngine[39m } [36mfrom[39m [32m'~/engine/GameEngine'[39m[33m;[39m[0m
+[0m[31m[1m>[22m[39m[90m 4 | [39m[36mimport[39m { useGameStore } [36mfrom[39m [32m'~/store/gameStore'[39m[33m;[39m[0m
+[0m [90m 5 | [39m[0m
+[0m [90m 6 | [39m[36mfunction[39m getLanHost()[33m:[39m string [33m|[39m [36mnull[39m {[0m
+[0m [90m 7 | [39m  [36mconst[39m anyConstants [33m=[39m [33mConstants[39m [36mas[39m any[33m;[39m[0m
+
+[1mweb[39m[22m compiled with [1m[31m5 errors[39m[22m
+[1m[31mERROR[39m[22m in [1m./src/screens/table.tsx:4[39m[22m
+Module not found: Can't resolve '~/components/cards/PlayingCard'
+[0m [90m 2 | [39m[36mimport[39m { [33mDimensions[39m[33m,[39m [33mStyleSheet[39m[33m,[39m [33mText[39m[33m,[39m [33mTouchableOpacity[39m[33m,[39m [33mView[39m } [36mfrom[39m [32m'react-native'[39m[33m;[39m[0m
+[0m [90m 3 | [39m[36mimport[39m [33mAnimated[39m[33m,[39m { [33mFadeIn[39m[33m,[39m [33mFadeOut[39m } [36mfrom[39m [32m'react-native-reanimated'[39m[33m;[39m[0m
+[0m[31m[1m>[22m[39m[90m 4 | [39m[36mimport[39m [33mPlayingCard[39m [36mfrom[39m [32m'~/components/cards/PlayingCard'[39m[33m;[39m[0m
+[0m [90m 5 | [39m[36mimport[39m { socketManager } [36mfrom[39m [32m'~/services/socket'[39m[33m;[39m[0m
+[0m [90m 6 | [39m[36mimport[39m { useGameStore } [36mfrom[39m [32m'~/store/gameStore'[39m[33m;[39m[0m
+[0m [90m 7 | [39m[36mimport[39m { [33mEMOJIS[39m } [36mfrom[39m [32m'../../shared/constants/game.constants'[39m[33m;[39m[0m
+
+[1m[31mERROR[39m[22m in [1m./src/screens/table.tsx:5[39m[22m
+Module not found: Can't resolve '~/services/socket'
+[0m [90m 3 | [39m[36mimport[39m [33mAnimated[39m[33m,[39m { [33mFadeIn[39m[33m,[39m [33mFadeOut[39m } [36mfrom[39m [32m'react-native-reanimated'[39m[33m;[39m[0m
+[0m [90m 4 | [39m[36mimport[39m [33mPlayingCard[39m [36mfrom[39m [32m'~/components/cards/PlayingCard'[39m[33m;[39m[0m
+[0m[31m[1m>[22m[39m[90m 5 | [39m[36mimport[39m { socketManager } [36mfrom[39m [32m'~/services/socket'[39m[33m;[39m[0m
+[0m [90m 6 | [39m[36mimport[39m { useGameStore } [36mfrom[39m [32m'~/store/gameStore'[39m[33m;[39m[0m
+[0m [90m 7 | [39m[36mimport[39m { [33mEMOJIS[39m } [36mfrom[39m [32m'../../shared/constants/game.constants'[39m[33m;[39m[0m
+[0m [90m 8 | [39m[0m
+
+[1m[31mERROR[39m[22m in [1m./src/screens/table.tsx:6[39m[22m
+Module not found: Can't resolve '~/store/gameStore'
+[0m [90m 4 | [39m[36mimport[39m [33mPlayingCard[39m [36mfrom[39m [32m'~/components/cards/PlayingCard'[39m[33m;[39m[0m
+[0m [90m 5 | [39m[36mimport[39m { socketManager } [36mfrom[39m [32m'~/services/socket'[39m[33m;[39m[0m
+[0m[31m[1m>[22m[39m[90m 6 | [39m[36mimport[39m { useGameStore } [36mfrom[39m [32m'~/store/gameStore'[39m[33m;[39m[0m
+[0m [90m 7 | [39m[36mimport[39m { [33mEMOJIS[39m } [36mfrom[39m [32m'../../shared/constants/game.constants'[39m[33m;[39m[0m
+[0m [90m 8 | [39m[0m
+[0m [90m 9 | [39m[36mconst[39m { width[33m:[39m [33mW[39m[33m,[39m height[33m:[39m [33mH[39m } [33m=[39m [33mDimensions[39m[33m.[39m[36mget[39m([32m'window'[39m)[33m;[39m[0m
+
+[1mweb[39m[22m compiled with [1m[31m3 errors[39m[22m
+[1mweb[39m[22m compiled [1m[32msuccessfully[39m[22m
+[1mweb[39m[22m compiled [1m[32msuccessfully[39m[22m
+[1mweb[39m[22m compiled [1m[32msuccessfully[39m[22m
+[1mweb[39m[22m compiled [1m[32msuccessfully[39m[22m
+[1mweb[39m[22m compiled [1m[32msuccessfully[39m[22m
+[1mweb[39m[22m compiled [1m[32msuccessfully[39m[22m

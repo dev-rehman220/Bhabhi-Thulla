@@ -34,7 +34,7 @@ export function registerGameHandlers(io: Server, socket: Socket) {
     const player: Player = {
       id: payload.playerId,
       socketId: socket.id,
-      displayName: socket.data.user?.name ?? 'Guest',
+      displayName: payload.displayName?.trim() || socket.data.user?.name || 'Guest',
       avatarUrl: socket.data.user?.photoURL ?? '',
       hand: [],
       handCount: 0,
@@ -51,7 +51,7 @@ export function registerGameHandlers(io: Server, socket: Socket) {
 
     let room = roomManager.getRoom(payload.roomId);
     if (!room) {
-      room = roomManager.createRoom(player, {});
+      room = roomManager.createRoom(player, payload.settings ?? {});
     } else {
       const result = roomManager.joinRoom(payload.roomId, player);
       if (!result.success) {
@@ -153,7 +153,11 @@ export function registerGameHandlers(io: Server, socket: Socket) {
     );
 
     room.match = newState;
-    Object.keys(allHands).forEach((pid) => roomManager.updatePlayerHand(match.matchId, pid, allHands[pid]));
+    Object.keys(allHands).forEach((pid) => {
+      roomManager.updatePlayerHand(match.matchId, pid, allHands[pid]);
+      const player = room.players.find((item) => item.id === pid);
+      if (player) player.handCount = allHands[pid].length;
+    });
 
     const eliminated = BhabhiEngine.checkEliminations(newState, allHands);
 

@@ -1,7 +1,7 @@
 import ioClient from 'socket.io-client';
 import Constants from 'expo-constants';
-import { ClientGameEngine } from '~/engine/GameEngine';
-import { useGameStore } from '~/store/gameStore';
+import { ClientGameEngine } from '../engine/GameEngine';
+import { useGameStore } from '../store/gameStore';
 
 function getLanHost(): string | null {
   const anyConstants = Constants as any;
@@ -113,12 +113,12 @@ class SocketManager {
     s.on('error', (payload: any) => console.warn('[Socket Error]', payload?.code ?? payload));
   }
 
-  joinRoom(roomId: string, playerId: string) {
-    this.socket?.emit('join_room', { roomId, playerId });
+  joinRoom(roomId: string, playerId: string, settings?: { maxPlayers?: 2 | 3 | 4 | 5 | 6 }, displayName?: string) {
+    this.socket?.emit('join_room', { roomId, playerId, displayName, settings });
   }
 
   joinByCode(code: string, playerId: string) {
-    this.socket?.emit('join_by_code', { code, playerId });
+    this.socket?.emit('join_by_code', { code, playerId, displayName: useGameStore.getState().displayName });
   }
 
   startMatch(roomId: string) {

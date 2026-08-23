@@ -1,9 +1,9 @@
 import React, { useCallback, useMemo } from 'react';
 import { Dimensions, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
-import PlayingCard from '~/components/cards/PlayingCard';
-import { socketManager } from '~/services/socket';
-import { useGameStore } from '~/store/gameStore';
+import PlayingCard from '../components/cards/PlayingCard';
+import { socketManager } from '../services/socket';
+import { useGameStore } from '../store/gameStore';
 import { EMOJIS } from '../../shared/constants/game.constants';
 
 const { width: W, height: H } = Dimensions.get('window');
@@ -23,6 +23,15 @@ export default function TableScreen() {
   } = useGameStore();
 
   const players = currentRoom?.players ?? [];
+  const orderedPlayers = useMemo(() => {
+    if (!matchState?.turnOrder.length) return players;
+    const turnIndex = matchState.turnOrder.indexOf(matchState.currentTurnPlayerId);
+    return matchState.turnOrder
+      .slice(turnIndex + 1)
+      .concat(matchState.turnOrder.slice(0, turnIndex + 1))
+      .map((id) => players.find((player) => player.id === id))
+      .filter(Boolean) as typeof players;
+  }, [matchState?.currentTurnPlayerId, matchState?.turnOrder, players]);
 
   const handlePlayCard = useCallback((cardId: string) => {
     if (!isMyTurn || !matchState || !userId) {
@@ -82,8 +91,10 @@ export default function TableScreen() {
         )}
       </View>
 
-      {players.filter((p) => p.id !== userId).map((player, idx) => {
-        const pos = seatPos(idx + 1, players.length);
+      <View style={styles.turnDirection}><Text style={styles.turnDirectionText}>TURN MOVES LEFT</Text></View>
+
+      {orderedPlayers.filter((p) => p.id !== userId).map((player, idx) => {
+        const pos = seatPos(idx + 1, Math.max(orderedPlayers.length, 2));
         const count = handCounts[player.id] ?? player.handCount ?? 0;
         const isTheirTurn = matchState?.currentTurnPlayerId === player.id;
 
@@ -96,6 +107,13 @@ export default function TableScreen() {
               <Text style={styles.avatarEmoji}>P</Text>
             </View>
             <Text style={styles.playerName} numberOfLines={1}>{player.displayName}</Text>
+            <View style={styles.opponentBacks}>
+              {Array.from({ length: Math.min(count, 5) }).map((_, cardIndex) => (
+                <View key={`${player.id}-back-${cardIndex}`} style={[styles.opponentBack, { marginLeft: cardIndex ? -18 : 0, zIndex: cardIndex }]}>
+                  <PlayingCard card={{ id: `${player.id}-hidden-${cardIndex}`, suit: 'Spades', value: 1 } as any} playable={false} faceUp={false} />
+                </View>
+              ))}
+            </View>
             <View style={styles.handCountBadge}>
               <Text style={styles.handCountText}>{count} cards</Text>
             </View>
@@ -263,4 +281,8 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
   },
   pingText: { color: '#4ade80', fontSize: 10 },
+  turnDirection: { position: 'absolute', top: 78, left: 0, right: 0, alignItems: 'center' },
+  turnDirectionText: { color: 'rgba(254,254,227,0.58)', fontSize: 9, letterSpacing: 2, fontWeight: '800' },
+  opponentBacks: { height: 34, flexDirection: 'row', alignItems: 'flex-start', marginTop: 5 },
+  opponentBack: { transform: [{ scale: 0.42 }], width: 32, height: 48 },
 });

@@ -1,11 +1,11 @@
 import React from 'react';
-import { TouchableOpacity, Text, StyleSheet, ViewStyle } from 'react-native';
+import { TouchableOpacity, Text, StyleSheet, StyleProp, ViewStyle } from 'react-native';
 
-type Props = { title: string; onPress?: () => void; style?: ViewStyle };
+type Props = { title: string; onPress?: () => void; style?: StyleProp<ViewStyle>; disabled?: boolean };
 
-export default function GlassButton({ title, onPress, style }: Props) {
+export default function GlassButton({ title, onPress, style, disabled = false }: Props) {
   return (
-    <TouchableOpacity onPress={onPress} activeOpacity={0.8} style={[styles.button, style]}> 
+    <TouchableOpacity accessibilityRole="button" accessibilityLabel={title} disabled={disabled} onPress={onPress} activeOpacity={0.8} style={[styles.button, style, disabled && styles.disabled]}>
       <Text style={styles.text}>{title}</Text>
     </TouchableOpacity>
   );
@@ -20,5 +20,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(255,220,115,0.12)'
   },
-  text: { color: '#ffd36b', fontWeight: '700', textAlign: 'center' }
+  text: { color: '#ffd36b', fontWeight: '700', textAlign: 'center' },
+  disabled: { opacity: 0.45 },
 });

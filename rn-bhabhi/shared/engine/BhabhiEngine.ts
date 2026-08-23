@@ -160,7 +160,8 @@ export class BhabhiEngine {
   static nextPlayer(state: MatchState, currentId: string): string {
     const active = state.turnOrder.filter((id) => !state.scores[id]?.isEliminated);
     const idx = active.indexOf(currentId);
-    return active[(idx + 1) % active.length];
+    // Seats are ordered from the player's left to right, so turns travel left.
+    return active[(idx - 1 + active.length) % active.length];
   }
 
   static checkMatchEnd(

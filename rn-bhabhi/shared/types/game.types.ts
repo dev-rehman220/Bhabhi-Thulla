@@ -101,7 +101,9 @@ export interface MatchState {
 export interface JoinRoomPayload {
   roomId: string;
   playerId: string;
+  displayName?: string;
   reconnectToken?: string;
+  settings?: Partial<RoomSettings>;
 }
 
 export interface PlayCardPayload {
