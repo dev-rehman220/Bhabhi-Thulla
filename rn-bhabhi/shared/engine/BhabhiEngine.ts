@@ -213,4 +213,24 @@ export class BhabhiEngine {
 
     return { forcePickup: true };
   }
+
+  static forcePickup(
+    state: MatchState,
+    playerId: string,
+    playerHands: Record<string, Card[]>,
+  ): MatchState {
+    const nextState = JSON.parse(JSON.stringify(state)) as MatchState;
+    const hand = playerHands[playerId];
+    const pickedCards = [...nextState.pile];
+    hand.push(...pickedCards);
+    nextState.pile = [];
+    nextState.pileLeadSuit = undefined;
+    nextState.pileOwner = undefined;
+    nextState.lastPlayedCard = undefined;
+    nextState.scores[playerId].cardsCollected += pickedCards.length;
+    nextState.history.push({ playerId, type: 'forced_pickup', timestamp: Date.now(), isValid: true });
+    nextState.currentTurnPlayerId = BhabhiEngine.nextPlayer(nextState, playerId);
+    nextState.turnStartedAt = Date.now();
+    return nextState;
+  }
 }

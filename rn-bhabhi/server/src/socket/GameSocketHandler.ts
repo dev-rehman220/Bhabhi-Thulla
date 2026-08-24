@@ -123,6 +123,11 @@ export function registerGameHandlers(io: Server, socket: Socket) {
     }
 
     const roomId = socket.data.roomId as string | undefined;
+    const playerId = socket.data.playerId as string | undefined;
+    if (!playerId || payload.playerId !== playerId) {
+      socket.emit('move_rejected', { reason: 'UNAUTHORIZED_PLAYER' });
+      return;
+    }
     if (!roomId) {
       return;
     }
@@ -133,8 +138,8 @@ export function registerGameHandlers(io: Server, socket: Socket) {
     }
 
     const match = room.match;
-    const hand = roomManager.getPlayerHand(match.matchId, payload.playerId);
-    const validation = BhabhiEngine.validateMove(match, payload.playerId, payload.cardId, hand);
+    const hand = roomManager.getPlayerHand(match.matchId, playerId);
+    const validation = BhabhiEngine.validateMove(match, playerId, payload.cardId, hand);
 
     if (!validation.valid) {
       socket.emit('move_rejected', { reason: validation.reason });
@@ -147,7 +152,7 @@ export function registerGameHandlers(io: Server, socket: Socket) {
     const allHands = roomManager.getAllHands(match.matchId) as Record<string, Card[]>;
     const { state: newState, mustPickup, pickedUpBy } = BhabhiEngine.applyMove(
       match,
-      payload.playerId,
+      playerId,
       card,
       allHands,
     );
@@ -162,7 +167,7 @@ export function registerGameHandlers(io: Server, socket: Socket) {
     const eliminated = BhabhiEngine.checkEliminations(newState, allHands);
 
     io.to(roomId).emit('card_played', {
-      playerId: payload.playerId,
+      playerId,
       card,
       matchState: publicMatchState(newState),
       mustPickup,
@@ -205,14 +210,19 @@ export function registerGameHandlers(io: Server, socket: Socket) {
     }
 
     const roomId = socket.data.roomId as string | undefined;
+    const playerId = socket.data.playerId as string | undefined;
     if (!roomId) {
       return;
     }
-    io.to(roomId).emit('emoji_received', payload);
+    if (!playerId || payload.playerId !== playerId) {
+      socket.emit('error', { code: 'UNAUTHORIZED_PLAYER' });
+      return;
+    }
+    io.to(roomId).emit('emoji_received', { ...payload, playerId });
   });
 
   socket.on('player_reconnect', async (payload: ReconnectPayload) => {
-    const success = roomManager.reconnectPlayer(payload.roomId, payload.playerId, socket.id);
+    const success = roomManager.reconnectPlayer(payload.roomId, payload.playerId, socket.id, payload.reconnectToken);
     if (!success) {
       socket.emit('error', { code: 'RECONNECT_FAILED' });
       return;
@@ -291,17 +301,61 @@ function scheduleTurnTimeout(io: Server, roomId: string, playerId: string, match
       const allHands = roomManager.getAllHands(match.matchId) as Record<string, Card[]>;
       const { state: newState } = BhabhiEngine.applyMove(match, playerId, forceCard, allHands);
       room.match = newState;
+      updateRoomHands(room, match.matchId, allHands, io);
+      const eliminated = BhabhiEngine.checkEliminations(newState, allHands);
       io.to(roomId).emit('card_played', {
         playerId,
         card: forceCard,
         matchState: publicMatchState(newState),
+        eliminated,
         forced: true,
       });
+      const result = BhabhiEngine.checkMatchEnd(newState);
+      if (result.isOver) {
+        io.to(roomId).emit('match_end', { thullaPlayerId: result.thullaPlayerId, scores: newState.scores, eliminationOrder: newState.eliminationOrder });
+        return;
+      }
+      scheduleTurnTimeout(io, roomId, newState.currentTurnPlayerId, newState);
+    } else if (forcePickup) {
+      const allHands = roomManager.getAllHands(match.matchId) as Record<string, Card[]>;
+      const newState = BhabhiEngine.forcePickup(match, playerId, allHands);
+      room.match = newState;
+      updateRoomHands(room, match.matchId, allHands, io);
+      const eliminated = BhabhiEngine.checkEliminations(newState, allHands);
+      io.to(roomId).emit('card_played', {
+        playerId,
+        card: null,
+        matchState: publicMatchState(newState),
+        mustPickup: true,
+        pickedUpBy: playerId,
+        eliminated,
+        forced: true,
+      });
+      const result = BhabhiEngine.checkMatchEnd(newState);
+      if (result.isOver) {
+        io.to(roomId).emit('match_end', { thullaPlayerId: result.thullaPlayerId, scores: newState.scores, eliminationOrder: newState.eliminationOrder });
+        return;
+      }
       scheduleTurnTimeout(io, roomId, newState.currentTurnPlayerId, newState);
     }
   }, match.turnTimeoutSeconds * 1000);
 
   turnTimers.set(roomId, timer);
+}
+
+function updateRoomHands(
+  room: GameRoom,
+  matchId: string,
+  allHands: Record<string, Card[]>,
+  io: Server,
+) {
+  const handCounts = Object.fromEntries(Object.entries(allHands).map(([pid, hand]) => [pid, hand.length]));
+  room.players.forEach((player) => {
+    const hand = allHands[player.id] ?? [];
+    roomManager.updatePlayerHand(matchId, player.id, hand);
+    player.handCount = hand.length;
+    io.sockets.sockets.get(player.socketId)?.emit('hand_updated', { hand, handCounts });
+  });
 }
 
 function clearTurnTimer(roomId: string) {
@@ -335,6 +389,8 @@ function scheduleAITurn(
       match.scores[aiPlayer.id].cardsCollected += pickedCards.length;
       match.currentTurnPlayerId = BhabhiEngine.nextPlayer(match, aiPlayer.id);
       match.turnStartedAt = Date.now();
+      updateRoomHands(room, match.matchId, allHands, io);
+      const eliminated = BhabhiEngine.checkEliminations(match, allHands);
 
       io.to(roomId).emit('card_played', {
         playerId: aiPlayer.id,
@@ -342,7 +398,14 @@ function scheduleAITurn(
         matchState: publicMatchState(match),
         mustPickup: true,
         pickedUpBy: aiPlayer.id,
+        eliminated,
       });
+
+      const result = BhabhiEngine.checkMatchEnd(match);
+      if (result.isOver) {
+        io.to(roomId).emit('match_end', { thullaPlayerId: result.thullaPlayerId, scores: match.scores, eliminationOrder: match.eliminationOrder });
+        return;
+      }
 
       scheduleTurnTimeout(io, roomId, match.currentTurnPlayerId, match);
       return;
@@ -351,12 +414,21 @@ function scheduleAITurn(
     const card = hand.find((c) => c.id === decision.cardId) as Card;
     const { state: newState } = BhabhiEngine.applyMove(match, aiPlayer.id, card, allHands);
     room.match = newState;
+    updateRoomHands(room, match.matchId, allHands, io);
+    const eliminated = BhabhiEngine.checkEliminations(newState, allHands);
 
     io.to(roomId).emit('card_played', {
       playerId: aiPlayer.id,
       card,
       matchState: publicMatchState(newState),
+      eliminated,
     });
+
+    const result = BhabhiEngine.checkMatchEnd(newState);
+    if (result.isOver) {
+      io.to(roomId).emit('match_end', { thullaPlayerId: result.thullaPlayerId, scores: newState.scores, eliminationOrder: newState.eliminationOrder });
+      return;
+    }
 
     scheduleTurnTimeout(io, roomId, newState.currentTurnPlayerId, newState);
   }, delay);

@@ -99,6 +99,9 @@ export class RoomManager {
     if (!room) {
       return { success: false, error: 'ROOM_NOT_FOUND' };
     }
+    if (room.status !== 'lobby') {
+      return { success: false, error: 'GAME_IN_PROGRESS' };
+    }
     if (room.players.length < 2) {
       return { success: false, error: 'NOT_ENOUGH_PLAYERS' };
     }
@@ -172,7 +175,7 @@ export class RoomManager {
     return this.playerHands.get(matchId);
   }
 
-  reconnectPlayer(roomId: string, playerId: string, newSocketId: string): boolean {
+  reconnectPlayer(roomId: string, playerId: string, newSocketId: string, reconnectToken?: string): boolean {
     const room = this.rooms.get(roomId);
     if (!room) {
       return false;
@@ -180,6 +183,9 @@ export class RoomManager {
 
     const player = room.players.find((p) => p.id === playerId);
     if (!player) {
+      return false;
+    }
+    if (player.reconnectToken && player.reconnectToken !== reconnectToken) {
       return false;
     }
 

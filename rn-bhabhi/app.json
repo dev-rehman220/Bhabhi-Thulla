@@ -8,7 +8,7 @@
     "web": {
       "bundler": "webpack"
     },
-    "orientation": "portrait",
+    "orientation": "landscape",
     "icon": "./assets/icon.png",
     "splash": {
       "image": "./assets/splash.png",

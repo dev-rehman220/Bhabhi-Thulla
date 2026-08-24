@@ -1,0 +1,18 @@
+{
+  "name": "bhabhi-thulla-workspace",
+  "private": true,
+  "scripts": {
+    "web": "node scripts/start-web.js",
+    "android": "npm --prefix get-away run android",
+    "ios": "npm --prefix get-away run ios",
+    "start": "npm --prefix get-away run start",
+    "server": "npm --prefix rn-bhabhi/server run dev",
+    "build": "npm --prefix rn-bhabhi/server run build",
+    "typecheck": "npm --prefix rn-bhabhi run typecheck",
+    "test:engine": "npm --prefix rn-bhabhi run test:engine",
+    "test:local": "npm --prefix rn-bhabhi run test:local",
+    "lint": "npm --prefix get-away run lint",
+    "build:android": "npm --prefix get-away run build:android",
+    "build:android:preview": "npm --prefix get-away run build:android:preview"
+  }
+}
