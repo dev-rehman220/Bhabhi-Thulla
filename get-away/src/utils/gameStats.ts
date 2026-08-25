@@ -64,6 +64,24 @@ export async function updateStats(partial: Partial<GameStats>): Promise<GameStat
   }
 }
 
+/** Increment counters and persist */
+export async function incrementStats(increments: Partial<Record<keyof GameStats, number>>): Promise<GameStats> {
+  try {
+    const current = await loadStats();
+    const updated: GameStats = { ...current };
+    for (const [key, delta] of Object.entries(increments) as [keyof GameStats, number][]) {
+      if (typeof updated[key] === "number") {
+        (updated[key] as number) += delta;
+      }
+    }
+    await saveStats(updated);
+    return updated;
+  } catch (err) {
+    console.warn("[gameStats] Failed to increment stats:", err);
+    return { ...DEFAULT_STATS };
+  }
+}
+
 /** Reset all stats to defaults */
 export async function resetStats(): Promise<GameStats> {
   await saveStats({ ...DEFAULT_STATS });

@@ -32,7 +32,7 @@ import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { FeedbackSummary } from "@/components/FeedbackSummary";
 import type { FeedbackStats } from "@/components/FeedbackSummary";
 import { useSound } from "@/hooks/useSound";
-import { loadStats } from "@/utils/gameStats";
+import { loadStats, incrementStats } from "@/utils/gameStats";
 import {
   createGame,
   playCard as enginePlay,
@@ -156,7 +156,7 @@ function FloatingDecorCard({
         true,
       ),
     );
-  }, []);
+  }, [delay]);
 
   const animatedStyle = useAnimatedStyle(() => ({
     transform: [
@@ -331,6 +331,7 @@ export default function GameScreen() {
       onLeave={() => {
         setStage("menu");
       }}
+      onStatsUpdate={setStats}
     />
   );
 }
@@ -1067,10 +1068,12 @@ function BhabhiGameView({
   cardWidth,
   playerCount,
   onLeave,
+  onStatsUpdate,
 }: {
   cardWidth: number;
   playerCount: number;
   onLeave: () => void;
+  onStatsUpdate: (stats: FeedbackStats) => void;
 }) {
   const { width, height } = useWindowDimensions();
   const [gameState, setGameState] = useState<BhabhiState>(() =>
@@ -1134,17 +1137,24 @@ function BhabhiGameView({
   useEffect(() => {
     if (gameState.phase === "finished" && gameState.loserId) {
       const loser = gameState.players.find((p) => p.id === gameState.loserId);
+      const humanIsLoser = gameState.loserId === "player-0";
       setTimeout(() => {
         showBanner(`${loser?.name ?? "Player"} is the BHABHI!`, "bhabhi");
         playBhabhi();
       }, 600);
       playGameOver();
+      incrementStats({
+        gamesPlayed: 1,
+        gamesWon: humanIsLoser ? 0 : 1,
+        bhabhiCount: humanIsLoser ? 1 : 0,
+      }).then((updated) => onStatsUpdate(updated));
     }
     const humanPlayer = gameState.players.find((p) => p.id === "player-0");
     if (humanPlayer?.safe && !lastSafeRef.current) {
       lastSafeRef.current = true;
       showBanner("You are SAFE!", "safe");
       playSafe();
+      incrementStats({ safeCount: 1 }).then((updated) => onStatsUpdate(updated));
     }
   }, [gameState.phase]);
 
@@ -1154,6 +1164,7 @@ function BhabhiGameView({
       lastMessageRef.current = gameState.message;
       showBanner("THULLA!", "thulla");
       playTrickWon();
+      incrementStats({ thullaCount: 1 }).then((updated) => onStatsUpdate(updated));
     }
   }, [gameState.message]);
 
