@@ -6,167 +6,113 @@ export class BhabhiEngine {
     const suits: Suit[] = ['spades', 'hearts', 'diamonds', 'clubs'];
     const values = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A'] as const;
     const deck: Card[] = [];
-
-    for (const suit of suits) {
-      for (const value of values) {
-        deck.push({
-          id: `${suit}_${value}`,
-          suit,
-          value,
-          numericValue: NUMERIC_VALUES[value],
-        });
-      }
-    }
-
+    for (const suit of suits) for (const value of values) deck.push({ id: `${suit}_${value}`, suit, value, numericValue: NUMERIC_VALUES[value] });
     return BhabhiEngine.shuffle(deck);
   }
 
   static shuffle<T>(arr: T[]): T[] {
-    const a = [...arr];
-    for (let i = a.length - 1; i > 0; i -= 1) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [a[i], a[j]] = [a[j], a[i]];
+    const result = [...arr];
+    for (let index = result.length - 1; index > 0; index -= 1) {
+      const swapIndex = Math.floor(Math.random() * (index + 1));
+      [result[index], result[swapIndex]] = [result[swapIndex], result[index]];
     }
-    return a;
+    return result;
   }
 
   static dealCards(playerIds: string[], deck: Card[]): Record<string, Card[]> {
     const hands: Record<string, Card[]> = {};
     playerIds.forEach((id) => { hands[id] = []; });
-
-    deck.forEach((card, i) => {
-      hands[playerIds[i % playerIds.length]].push(card);
-    });
-
+    deck.forEach((card, index) => hands[playerIds[index % playerIds.length]].push(card));
     return hands;
   }
 
-  static validateMove(
-    state: MatchState,
-    playerId: string,
-    cardId: string,
-    playerHand: Card[],
-  ): { valid: boolean; reason?: string } {
-    if (state.currentTurnPlayerId !== playerId) {
-      return { valid: false, reason: 'NOT_YOUR_TURN' };
-    }
-
-    const card = playerHand.find((c) => c.id === cardId);
-    if (!card) {
-      return { valid: false, reason: 'CARD_NOT_IN_HAND' };
-    }
-
-    if (state.pile.length === 0) {
-      return { valid: true };
-    }
-
-    const leadSuit = state.pileLeadSuit as Suit;
-    const hasSuit = playerHand.some((c) => c.suit === leadSuit);
-
-    if (hasSuit && card.suit !== leadSuit) {
-      return { valid: false, reason: 'MUST_FOLLOW_SUIT' };
-    }
-
-    if (card.suit === leadSuit) {
-      const topCard = state.pile[state.pile.length - 1];
-      const canBeat = playerHand.some(
-        (c) => c.suit === leadSuit && c.numericValue > topCard.numericValue,
-      );
-      if (canBeat && card.numericValue <= topCard.numericValue) {
-        return { valid: false, reason: 'MUST_PLAY_HIGHER_CARD' };
-      }
-    }
-
+  static validateMove(state: MatchState, playerId: string, cardId: string, playerHand: Card[]): { valid: boolean; reason?: string } {
+    if (state.currentTurnPlayerId !== playerId) return { valid: false, reason: 'NOT_YOUR_TURN' };
+    const card = playerHand.find((item) => item.id === cardId);
+    if (!card) return { valid: false, reason: 'CARD_NOT_IN_HAND' };
+    if (!state.pile.length) return { valid: state.history.length > 0 || card.id === 'spades_A', reason: state.history.length > 0 ? undefined : 'MUST_PLAY_ACE_OF_SPADES' };
+    const ledSuit = state.pileLeadSuit as Suit;
+    if (playerHand.some((item) => item.suit === ledSuit) && card.suit !== ledSuit) return { valid: false, reason: 'MUST_FOLLOW_SUIT' };
     return { valid: true };
   }
 
-  static applyMove(
-    state: MatchState,
-    playerId: string,
-    card: Card,
-    playerHands: Record<string, Card[]>,
-  ): { state: MatchState; mustPickup: boolean; pickedUpBy?: string } {
-    const newState = JSON.parse(JSON.stringify(state)) as MatchState;
+  static applyMove(state: MatchState, playerId: string, card: Card, playerHands: Record<string, Card[]>): { state: MatchState; mustPickup: boolean; pickedUpBy?: string } {
+    const nextState = JSON.parse(JSON.stringify(state)) as MatchState;
     const hand = playerHands[playerId];
+    hand.splice(hand.findIndex((item) => item.id === card.id), 1);
+    const record: MoveRecord = { playerId, type: 'play_card', card, timestamp: Date.now(), isValid: true };
 
-    const idx = hand.findIndex((c) => c.id === card.id);
-    if (idx >= 0) {
-      hand.splice(idx, 1);
+    if (!nextState.pile.length) {
+      nextState.pile = [card];
+      nextState.pileLeadSuit = card.suit;
+      nextState.pileOwner = playerId;
+      nextState.lastPlayedCard = card;
+      nextState.history.push(record);
+      nextState.currentTurnPlayerId = BhabhiEngine.nextPlayer(nextState, playerId);
+      return { state: nextState, mustPickup: false };
     }
 
-    const record: MoveRecord = {
-      playerId,
-      type: 'play_card',
-      card,
-      timestamp: Date.now(),
-      isValid: true,
-    };
+    const ledSuit = nextState.pileLeadSuit as Suit;
+    nextState.pile.push(card);
+    nextState.lastPlayedCard = card;
 
-    if (newState.pile.length === 0) {
-      newState.pile = [card];
-      newState.pileLeadSuit = card.suit;
-      newState.pileOwner = playerId;
-      newState.lastPlayedCard = card;
-      newState.phase = 'awaiting_move';
-      newState.turnStartedAt = Date.now();
-      newState.history.push(record);
-      newState.currentTurnPlayerId = BhabhiEngine.nextPlayer(newState, playerId);
-      return { state: newState, mustPickup: false };
+    if (card.suit !== ledSuit) {
+      const highestLed = nextState.pile.filter((item) => item.suit === ledSuit).reduce((highest, item) => item.numericValue > highest.numericValue ? item : highest);
+      const highestPlayerId = this.playerForCard(nextState.history, highestLed.id) ?? playerId;
+      playerHands[highestPlayerId].push(...nextState.pile);
+      nextState.scores[highestPlayerId].cardsCollected += nextState.pile.length;
+      record.type = 'pickup_pile';
+      nextState.history.push(record);
+      nextState.pile = [];
+      nextState.pileLeadSuit = undefined;
+      nextState.pileOwner = undefined;
+      nextState.lastPlayedCard = undefined;
+      nextState.currentTurnPlayerId = playerId;
+      return { state: nextState, mustPickup: true, pickedUpBy: highestPlayerId };
     }
 
-    const topCard = newState.pile[newState.pile.length - 1];
-    const beats = card.suit === newState.pileLeadSuit && card.numericValue > topCard.numericValue;
-
-    if (beats) {
-      newState.pile.push(card);
-      newState.lastPlayedCard = card;
-      newState.phase = 'awaiting_move';
-      newState.turnStartedAt = Date.now();
-      newState.history.push(record);
-      newState.currentTurnPlayerId = BhabhiEngine.nextPlayer(newState, playerId);
-      return { state: newState, mustPickup: false };
+    const activeCount = nextState.turnOrder.filter((id) => !nextState.scores[id]?.isEliminated).length;
+    nextState.history.push(record);
+    if (nextState.pile.length < activeCount) {
+      nextState.currentTurnPlayerId = BhabhiEngine.nextPlayer(nextState, playerId);
+      return { state: nextState, mustPickup: false };
     }
 
-    const pickedCards = [...newState.pile, card];
-    hand.push(...pickedCards);
-    newState.pile = [];
-    newState.pileLeadSuit = undefined;
-    newState.pileOwner = undefined;
-    newState.lastPlayedCard = undefined;
-    newState.phase = 'awaiting_move';
-    newState.turnStartedAt = Date.now();
-    record.type = 'pickup_pile';
-    newState.scores[playerId].cardsCollected += pickedCards.length;
-    newState.history.push(record);
-    newState.currentTurnPlayerId = BhabhiEngine.nextPlayer(newState, playerId);
-    return { state: newState, mustPickup: true, pickedUpBy: playerId };
+    const highestLed = nextState.pile.filter((item) => item.suit === ledSuit).reduce((highest, item) => item.numericValue > highest.numericValue ? item : highest);
+    const winnerId = this.playerForCard(nextState.history, highestLed.id) ?? playerId;
+    Object.entries(playerHands).forEach(([id, playerHand]) => {
+      if (!playerHand.length) {
+        nextState.scores[id].isEliminated = true;
+        nextState.scores[id].eliminationRound = nextState.round;
+      }
+    });
+    const remaining = nextState.turnOrder.filter((id) => !nextState.scores[id]?.isEliminated);
+    nextState.pile = [];
+    nextState.pileLeadSuit = undefined;
+    nextState.pileOwner = undefined;
+    nextState.lastPlayedCard = undefined;
+    nextState.currentTurnPlayerId = remaining.includes(winnerId) ? winnerId : remaining.find((id) => nextState.turnOrder.indexOf(id) > nextState.turnOrder.indexOf(winnerId)) ?? remaining[0];
+    return { state: nextState, mustPickup: false };
   }
 
   static checkEliminations(state: MatchState, playerHands: Record<string, Card[]>): string[] {
     const newlyEliminated: string[] = [];
-
-    for (const [pid, hand] of Object.entries(playerHands)) {
-      if (hand.length === 0 && !state.scores[pid].isEliminated) {
-        state.scores[pid].isEliminated = true;
-        state.scores[pid].eliminationRound = state.round;
-        state.eliminationOrder.push(pid);
-        newlyEliminated.push(pid);
-      }
+    for (const [playerId, hand] of Object.entries(playerHands)) if (!hand.length && !state.scores[playerId].isEliminated) {
+      state.scores[playerId].isEliminated = true;
+      state.scores[playerId].eliminationRound = state.round;
+      state.eliminationOrder.push(playerId);
+      newlyEliminated.push(playerId);
     }
-
     return newlyEliminated;
   }
 
   static nextPlayer(state: MatchState, currentId: string): string {
     const active = state.turnOrder.filter((id) => !state.scores[id]?.isEliminated);
-    const idx = active.indexOf(currentId);
-    // Seats are ordered from the player's left to right, so turns travel left.
-    return active[(idx - 1 + active.length) % active.length];
+    const index = active.indexOf(currentId);
+    return active[(index + 1) % active.length];
   }
 
-  static checkMatchEnd(
-    state: MatchState,
-  ): { isOver: boolean; thullaPlayerId?: string } {
+  static checkMatchEnd(state: MatchState): { isOver: boolean; thullaPlayerId?: string } {
     const activePlayers = state.turnOrder.filter((id) => !state.scores[id].isEliminated);
     if (activePlayers.length === 1) {
       state.scores[activePlayers[0]].isThulla = true;
@@ -177,60 +123,40 @@ export class BhabhiEngine {
   }
 
   static getPlayableCards(state: MatchState, hand: Card[]): Card[] {
-    if (state.pile.length === 0) {
-      return hand;
-    }
-
-    const leadSuit = state.pileLeadSuit as Suit;
-    const suitCards = hand.filter((c) => c.suit === leadSuit);
-    if (suitCards.length === 0) {
-      return hand;
-    }
-
-    const topCard = state.pile[state.pile.length - 1];
-    const higherCards = suitCards.filter((c) => c.numericValue > topCard.numericValue);
-    return higherCards.length > 0 ? higherCards : suitCards;
+    if (!state.pile.length) return hand;
+    const ledSuit = state.pileLeadSuit as Suit;
+    const suited = hand.filter((card) => card.suit === ledSuit);
+    return suited.length ? suited : hand;
   }
 
-  static handleTurnTimeout(
-    state: MatchState,
-    hand: Card[],
-  ): { forceCard?: Card; forcePickup: boolean } {
-    if (state.pile.length === 0) {
-      const sorted = [...hand].sort((a, b) => a.numericValue - b.numericValue);
-      return { forceCard: sorted[0], forcePickup: false };
-    }
-
+  static handleTurnTimeout(state: MatchState, hand: Card[]): { forceCard?: Card; forcePickup: boolean } {
     const playable = BhabhiEngine.getPlayableCards(state, hand);
-    if (playable.length > 0 && playable[0].suit === state.pileLeadSuit) {
-      const topCard = state.pile[state.pile.length - 1];
-      const canBeat = playable.some((c) => c.numericValue > topCard.numericValue);
-      if (canBeat) {
-        const card = [...playable].sort((a, b) => a.numericValue - b.numericValue)[0];
-        return { forceCard: card, forcePickup: false };
-      }
+    if (!state.pile.length && state.history.length === 0) {
+      const ace = hand.find((card) => card.id === 'spades_A');
+      return ace ? { forceCard: ace, forcePickup: false } : { forcePickup: true };
     }
-
-    return { forcePickup: true };
+    return playable.length ? { forceCard: playable[0], forcePickup: false } : { forcePickup: true };
   }
 
-  static forcePickup(
-    state: MatchState,
-    playerId: string,
-    playerHands: Record<string, Card[]>,
-  ): MatchState {
+  static forcePickup(state: MatchState, playerId: string, playerHands: Record<string, Card[]>): MatchState {
     const nextState = JSON.parse(JSON.stringify(state)) as MatchState;
-    const hand = playerHands[playerId];
     const pickedCards = [...nextState.pile];
-    hand.push(...pickedCards);
+    playerHands[playerId].push(...pickedCards);
     nextState.pile = [];
     nextState.pileLeadSuit = undefined;
     nextState.pileOwner = undefined;
     nextState.lastPlayedCard = undefined;
     nextState.scores[playerId].cardsCollected += pickedCards.length;
     nextState.history.push({ playerId, type: 'forced_pickup', timestamp: Date.now(), isValid: true });
-    nextState.currentTurnPlayerId = BhabhiEngine.nextPlayer(nextState, playerId);
+    nextState.currentTurnPlayerId = playerId;
     nextState.turnStartedAt = Date.now();
     return nextState;
+  }
+
+  private static playerForCard(history: MoveRecord[], cardId: string): string | undefined {
+    for (let index = history.length - 1; index >= 0; index -= 1) {
+      if (history[index].card?.id === cardId) return history[index].playerId;
+    }
+    return undefined;
   }
 }

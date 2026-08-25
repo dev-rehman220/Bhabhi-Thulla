@@ -92,7 +92,7 @@ function testTurnMovesLeftForThreePlayers() {
       p3: { playerId: 'p3', roundsWon: 0, cardsCollected: 0, isEliminated: false, isThulla: false },
     },
   });
-  assert.equal(BhabhiEngine.nextPlayer(state, 'p1'), 'p3', 'three-player turn should move left');
+  assert.equal(BhabhiEngine.nextPlayer(state, 'p1'), 'p2', 'three-player turn should move clockwise');
 }
 
 function testEliminationAndMatchEnd() {
@@ -106,8 +106,28 @@ function testEliminationAndMatchEnd() {
   assert.equal(end.thullaPlayerId, 'p2', 'remaining player should be thulla');
 }
 
+function testThullaAndTrickResolution() {
+  const lead = makeCard('hearts_10', 'hearts', '10', 10);
+  const thulla = makeCard('clubs_2', 'clubs', '2', 2);
+  const hands: Record<string, Card[]> = { p1: [], p2: [thulla] };
+  const state = makeMatch({ pile: [lead], pileLeadSuit: 'hearts', currentTurnPlayerId: 'p2', history: [{ playerId: 'p1', type: 'play_card', card: lead, timestamp: Date.now(), isValid: true }] });
+  const thullaResult = BhabhiEngine.applyMove(state, 'p2', thulla, hands);
+  assert.equal(thullaResult.mustPickup, true, 'an off-suit play should trigger an immediate Thulla');
+  assert.equal(thullaResult.pickedUpBy, 'p1', 'highest led-suit player should pick up the pile');
+  assert.equal(thullaResult.state.currentTurnPlayerId, 'p2', 'the Thulla player should lead next');
+  assert.equal(hands.p1.length, 2, 'the picked-up trick should return to the highest led player');
+
+  const lowCard = makeCard('hearts_2', 'hearts', '2', 2);
+  const normalHands: Record<string, Card[]> = { p1: [lead], p2: [lowCard] };
+  const normalState = makeMatch({ pile: [lead], pileLeadSuit: 'hearts', currentTurnPlayerId: 'p2', history: [{ playerId: 'p1', type: 'play_card', card: lead, timestamp: Date.now(), isValid: true }] });
+  const normalResult = BhabhiEngine.applyMove(normalState, 'p2', lowCard, normalHands);
+  assert.equal(normalResult.mustPickup, false, 'a same-suit card should never trigger a pickup');
+  assert.equal(normalResult.state.pile.length, 0, 'a completed clean trick should be discarded');
+  assert.equal(normalResult.state.currentTurnPlayerId, 'p1', 'highest led-suit player should lead the next trick');
+}
+
 function run() {
-  const cases = [testBuildDeck, testSixPlayerDistribution, testValidateMove, testApplyMoveAndTimeout, testTurnMovesLeftForThreePlayers, testEliminationAndMatchEnd];
+  const cases = [testBuildDeck, testSixPlayerDistribution, testValidateMove, testApplyMoveAndTimeout, testTurnMovesLeftForThreePlayers, testEliminationAndMatchEnd, testThullaAndTrickResolution];
   for (const fn of cases) fn();
   console.log(`BhabhiEngine tests passed (${cases.length})`);
 }

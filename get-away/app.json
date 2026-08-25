@@ -1,7 +1,6 @@
 {
   "expo": {
-    "package": "com.devrehman220.getaway",
-  "name": "get-away",
+    "name": "Get Away",
     "slug": "get-away",
     "version": "1.0.0",
     "orientation": "landscape",
