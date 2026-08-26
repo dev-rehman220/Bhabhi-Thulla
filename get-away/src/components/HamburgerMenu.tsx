@@ -25,12 +25,21 @@ export function HamburgerMenu({ items }: HamburgerMenuProps) {
     <View>
       <Pressable
         onPress={() => setVisible(true)}
-        className="w-11 h-11 rounded-xl bg-white/10 border border-white/10 items-center justify-center"
+        style={{
+          width: 44,
+          height: 44,
+          borderRadius: 12,
+          backgroundColor: "rgba(232,245,238,0.1)",
+          borderWidth: 1,
+          borderColor: "rgba(232,245,238,0.1)",
+          alignItems: "center",
+          justifyContent: "center",
+        }}
       >
-        <View className="gap-[3px] items-center justify-center">
-          <View className="w-5 h-[2px] bg-gold rounded-full" />
-          <View className="w-5 h-[2px] bg-gold rounded-full" />
-          <View className="w-5 h-[2px] bg-gold rounded-full" />
+        <View style={{ gap: 3, alignItems: "center", justifyContent: "center" }}>
+          <View style={{ width: 20, height: 2, backgroundColor: "#D4A843", borderRadius: 999 }} />
+          <View style={{ width: 20, height: 2, backgroundColor: "#D4A843", borderRadius: 999 }} />
+          <View style={{ width: 20, height: 2, backgroundColor: "#D4A843", borderRadius: 999 }} />
         </View>
       </Pressable>
 

@@ -1,57 +1,45 @@
-import { View, Text, Pressable, Modal } from "react-native";
+import { View, Text, Pressable, Modal, useWindowDimensions } from "react-native";
 import Animated, { FadeIn, FadeOut, useSharedValue, useAnimatedStyle, withSpring } from "react-native-reanimated";
 import type { GameStats } from "@/utils/gameStats";
 
-/* ================================================================
-   FEEDBACK SUMMARY – Player stats modal with glass-morphism
-   ================================================================ */
-
-/** Re-export for consumers */
 export type FeedbackStats = GameStats;
 
 type FeedbackSummaryProps = {
   visible: boolean;
   onClose: () => void;
   onPlayWithFriends: () => void;
-  stats: FeedbackStats;
+  stats: GameStats;
 };
 
-/** Small stat card used in the grid layout */
-function StatCard({
-  icon,
-  label,
-  value,
-}: {
-  icon: string;
-  label: string;
-  value: string | number;
-}) {
+const T = {
+  bg: "#060F0A",
+  surface: "#0C1B12",
+  card: "#122B1A",
+  accent: "#34D399",
+  gold: "#D4A843",
+  coral: "#E8605A",
+  text: "#E8F5EE",
+  textMuted: "#7CAA92",
+  textDim: "#3A6B50",
+  border: "#1A3526",
+};
+
+function StatCard({ icon, label, value, w }: { icon: string; label: string; value: string | number; w: number }) {
   return (
-    <View className="bg-white/[0.06] border border-white/10 rounded-xl p-3.5 items-center flex-1 min-w-[130px]">
-      <Text className="text-2xl mb-1.5">{icon}</Text>
-      <Text className="text-aqua text-lg font-black">{value}</Text>
-      <Text className="text-muted text-[8px] tracking-widest font-black mt-1">
-        {label}
-      </Text>
+    <View style={{ backgroundColor: "rgba(255,255,255,0.04)", borderWidth: 1, borderColor: T.border, borderRadius: 12, padding: 14, alignItems: "center", flex: 1, minWidth: Math.max(100, w * 0.13) }}>
+      <Text style={{ fontSize: 20, marginBottom: 6 }}>{icon}</Text>
+      <Text style={{ color: T.accent, fontSize: w > 500 ? 18 : 16, fontWeight: "900" }}>{value}</Text>
+      <Text style={{ color: T.textMuted, fontSize: w > 500 ? 9 : 8, letterSpacing: 1, fontWeight: "900", marginTop: 4 }}>{label}</Text>
     </View>
   );
 }
 
-export function FeedbackSummary({
-  visible,
-  onClose,
-  onPlayWithFriends,
-  stats,
-}: FeedbackSummaryProps) {
-  const winRate =
-    stats.gamesPlayed > 0
-      ? Math.round((stats.gamesWon / stats.gamesPlayed) * 100)
-      : 0;
+export function FeedbackSummary({ visible, onClose, onPlayWithFriends, stats }: FeedbackSummaryProps) {
+  const { width } = useWindowDimensions();
+  const winRate = stats.gamesPlayed > 0 ? Math.round((stats.gamesWon / stats.gamesPlayed) * 100) : 0;
 
-  /** Animated entry for the card */
   const cardScale = useSharedValue(0.92);
   const cardOpacity = useSharedValue(0);
-
   const cardAnimStyle = useAnimatedStyle(() => ({
     transform: [{ scale: cardScale.value }],
     opacity: cardOpacity.value,
@@ -68,135 +56,79 @@ export function FeedbackSummary({
   };
 
   return (
-    <Modal
-      visible={visible}
-      transparent
-      animationType="none"
-      onShow={handleOpen}
-      onRequestClose={onClose}
-    >
+    <Modal visible={visible} transparent animationType="none" onShow={handleOpen} onRequestClose={onClose}>
       <Animated.View
         entering={FadeIn.duration(200)}
         exiting={FadeOut.duration(150)}
-        className="flex-1 bg-black/60 items-center justify-center px-6"
+        style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.6)", alignItems: "center", justifyContent: "center", paddingHorizontal: 24 }}
       >
         <Animated.View
-          style={cardAnimStyle}
-          className="w-full max-w-[380px] rounded-2xl border border-white/10 overflow-hidden"
+          style={[cardAnimStyle, { width: "100%", maxWidth: 400, borderRadius: 16, borderWidth: 1, borderColor: T.border, overflow: "hidden" }]}
         >
-          {/* Glass-morphism background */}
-          <View
-            className="absolute inset-0 bg-ink/90"
-            style={{
-              shadowColor: "#000",
-              shadowOffset: { width: 0, height: 12 },
-              shadowOpacity: 0.5,
-              shadowRadius: 24,
-              elevation: 24,
-            }}
-          />
-          <View className="absolute inset-0 bg-teal/10" />
+          {/* Background */}
+          <View style={{ position: "absolute", inset: 0, backgroundColor: T.surface }} />
+          <View style={{ position: "absolute", inset: 0, backgroundColor: "rgba(52,211,153,0.05)" }} />
 
           {/* Content */}
-          <View className="relative p-6">
+          <View style={{ position: "relative", padding: 24 }}>
             {/* Header */}
-            <View className="flex-row items-center justify-between mb-5">
-              <View className="flex-1">
-                <Text className="text-muted text-[9px] tracking-widest font-black">
-                  YOUR RECORD
-                </Text>
-                <Text className="text-cloud text-xl font-black tracking-wider">
-                  YOUR STATS
-                </Text>
+            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
+              <View style={{ flex: 1 }}>
+                <Text style={{ color: T.textMuted, fontSize: 9, letterSpacing: 1, fontWeight: "900" }}>YOUR RECORD</Text>
+                <Text style={{ color: T.text, fontSize: 20, fontWeight: "900", letterSpacing: 1 }}>YOUR STATS</Text>
               </View>
               <Pressable
-                onPress={() => {
-                  handleClose();
-                  setTimeout(onClose, 180);
-                }}
-                className="w-9 h-9 rounded-full bg-white/10 items-center justify-center border border-white/10"
+                onPress={() => { handleClose(); setTimeout(onClose, 180); }}
+                style={{ width: 36, height: 36, borderRadius: 999, backgroundColor: "rgba(232,245,238,0.1)", alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: T.border }}
               >
-                <Text className="text-cloud text-sm font-black">✕</Text>
+                <Text style={{ color: T.text, fontSize: 14, fontWeight: "900" }}>✕</Text>
               </Pressable>
             </View>
 
             {/* Win Rate Bar */}
-            <View className="mb-5">
-              <View className="flex-row items-center justify-between mb-2">
-                <Text className="text-muted text-[9px] tracking-widest font-black">
-                  WIN RATE
-                </Text>
-                <Text className="text-gold text-sm font-black">
-                  {winRate}%
-                </Text>
+            <View style={{ marginBottom: 20 }}>
+              <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+                <Text style={{ color: T.textMuted, fontSize: 9, letterSpacing: 1, fontWeight: "900" }}>WIN RATE</Text>
+                <Text style={{ color: T.gold, fontSize: 14, fontWeight: "900" }}>{winRate}%</Text>
               </View>
-              <View className="w-full h-2.5 bg-white/10 rounded-full overflow-hidden">
-                <View
-                  className="h-full rounded-full bg-gold"
-                  style={{ width: `${winRate}%` }}
-                />
+              <View style={{ width: "100%", height: 10, backgroundColor: "rgba(232,245,238,0.1)", borderRadius: 999, overflow: "hidden" }}>
+                <View style={{ height: "100%", borderRadius: 999, backgroundColor: T.gold, width: `${winRate}%` }} />
               </View>
-              <View className="flex-row justify-between mt-1.5">
-                <Text className="text-muted text-[8px] font-black">
-                  {stats.gamesWon} W
-                </Text>
-                <Text className="text-muted text-[8px] font-black">
-                  {stats.gamesPlayed - stats.gamesWon} L
-                </Text>
+              <View style={{ flexDirection: "row", justifyContent: "space-between", marginTop: 6 }}>
+                <Text style={{ color: T.textMuted, fontSize: 8, fontWeight: "900" }}>{stats.gamesWon} W</Text>
+                <Text style={{ color: T.textMuted, fontSize: 8, fontWeight: "900" }}>{stats.gamesPlayed - stats.gamesWon} L</Text>
               </View>
             </View>
 
             {/* Stats Grid */}
-            <View className="flex-row flex-wrap gap-2.5 mb-5">
-              <StatCard icon="🎮" label="GAMES PLAYED" value={stats.gamesPlayed} />
-              <StatCard icon="🏆" label="GAMES WON" value={stats.gamesWon} />
-              <StatCard icon="💀" label="LOSSES" value={stats.loserCount} />
-              <StatCard icon="⚠️" label="THULLAS HIT" value={stats.thullaCount} />
-              <StatCard icon="🛡️" label="TIMES SAFE" value={stats.safeCount} />
-              <StatCard icon="🔥" label="BEST STREAK" value={stats.longestStreak} />
+            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10, marginBottom: 20 }}>
+              <StatCard icon="🎮" label="GAMES" value={stats.gamesPlayed} w={width} />
+              <StatCard icon="🏆" label="WON" value={stats.gamesWon} w={width} />
+              <StatCard icon="💀" label="LOSSES" value={stats.loserCount} w={width} />
+              <StatCard icon="⚠️" label="THULLAS" value={stats.thullaCount} w={width} />
+              <StatCard icon="🛡️" label="SAFE" value={stats.safeCount} w={width} />
+              <StatCard icon="🔥" label="STREAK" value={stats.longestStreak} w={width} />
             </View>
 
             {/* Favorite Card */}
-            <View className="bg-white/[0.04] rounded-xl px-4 py-3 border border-white/10 mb-5 flex-row items-center justify-between">
-              <Text className="text-muted text-[9px] tracking-widest font-black">
-                FAVORITE CARD
-              </Text>
-              <Text className="text-gold text-sm font-black">
-                {stats.favoriteCard}
-              </Text>
+            <View style={{ backgroundColor: "rgba(232,245,238,0.03)", borderRadius: 12, paddingHorizontal: 16, paddingVertical: 12, borderWidth: 1, borderColor: T.border, marginBottom: 20, flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+              <Text style={{ color: T.textMuted, fontSize: 9, letterSpacing: 1, fontWeight: "900" }}>FAVORITE CARD</Text>
+              <Text style={{ color: T.gold, fontSize: 14, fontWeight: "900" }}>{stats.favoriteCard}</Text>
             </View>
 
             {/* Action Buttons */}
             <Pressable
-              onPress={() => {
-                handleClose();
-                setTimeout(onPlayWithFriends, 180);
-              }}
-              className="py-4 rounded-xl items-center mb-3"
-              style={{
-                backgroundColor: "#F5C96A",
-                shadowColor: "#F5C96A",
-                shadowOffset: { width: 0, height: 4 },
-                shadowOpacity: 0.3,
-                shadowRadius: 12,
-                elevation: 8,
-              }}
+              onPress={() => { handleClose(); setTimeout(onPlayWithFriends, 180); }}
+              style={{ paddingVertical: 16, borderRadius: 12, alignItems: "center", marginBottom: 12, backgroundColor: T.gold, shadowColor: "#D4A843", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 12, elevation: 8 }}
             >
-              <Text className="text-ink text-[11px] font-black tracking-wider">
-                PLAY WITH FRIENDS →
-              </Text>
+              <Text style={{ color: T.bg, fontSize: width > 500 ? 11 : 10, fontWeight: "900", letterSpacing: 1 }}>PLAY WITH FRIENDS →</Text>
             </Pressable>
 
             <Pressable
-              onPress={() => {
-                handleClose();
-                setTimeout(onClose, 180);
-              }}
-              className="py-3.5 rounded-xl items-center border border-white/10"
+              onPress={() => { handleClose(); setTimeout(onClose, 180); }}
+              style={{ paddingVertical: 14, borderRadius: 12, alignItems: "center", borderWidth: 1, borderColor: T.border }}
             >
-              <Text className="text-cloud text-[11px] font-bold tracking-wider">
-                CLOSE
-              </Text>
+              <Text style={{ color: T.text, fontSize: width > 500 ? 11 : 10, fontWeight: "700", letterSpacing: 1 }}>CLOSE</Text>
             </Pressable>
           </View>
         </Animated.View>

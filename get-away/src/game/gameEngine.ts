@@ -34,7 +34,7 @@ function nextActivePlayer(state: GameState, playerId: string) {
   return state.activePlayerIds[(index + 1) % state.activePlayerIds.length];
 }
 
-function playableCards(player: GamePlayer, trick: PlayedCard[]) {
+export function playableCards(player: GamePlayer, trick: PlayedCard[]) {
   if (!trick.length) return player.hand;
   const ledSuit = trick[0].card.suit;
   const ledCards = player.hand.filter((card) => card.suit === ledSuit);
