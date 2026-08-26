@@ -8,6 +8,7 @@ import {
   useWindowDimensions,
   View,
   Platform,
+  BackHandler,
 } from "react-native";
 import type { ReactNode } from "react";
 import Constants from "expo-constants";
@@ -406,8 +407,6 @@ function SplashView() {
   const shimmer = useSharedValue(0);
   const fadeAnim = useSharedValue(0);
 
-  const isLandscape = width > height;
-
   useEffect(() => {
     progress.value = withTiming(1, {
       duration: 800,
@@ -438,22 +437,20 @@ function SplashView() {
     opacity: fadeAnim.value,
   }));
 
-  // Landscape layout
-  if (isLandscape) {
-    return (
+  return (
       <View className="flex-1 bg-black">
         {/* ── Background Pattern ─────────────────────── */}
         <View className="absolute inset-0" pointerEvents="none">
-          {Array.from({ length: 12 }).map((_, row) =>
-            Array.from({ length: 10 }).map((_, col) => (
+          {Array.from({ length: 4 }).map((_, row) =>
+            Array.from({ length: 5 }).map((_, col) => (
               <View
                 key={`grid-${row}-${col}`}
-                className="absolute border border-white/[0.015]"
+                className="absolute border border-white/[0.02]"
                 style={{
-                  width: 80,
-                  height: 80,
-                  left: col * 80,
-                  top: row * 80,
+                  width: 160,
+                  height: 140,
+                  left: col * 160,
+                  top: row * 140,
                 }}
               />
             ))
@@ -575,7 +572,7 @@ function SplashView() {
                 <Animated.View
                   style={[shimmerBorder, {
                     position: "absolute",
-                    inset: 0,
+                    top: 0, left: 0, right: 0, bottom: 0,
                     borderRadius: 16,
                     borderWidth: 1,
                     borderColor: "rgba(111,224,208,0.3)",
@@ -617,185 +614,6 @@ function SplashView() {
         </View>
       </View>
     );
-  }
-
-  // Portrait layout (fallback)
-  return (
-    <View className="flex-1 bg-black">
-      {/* ── Background Pattern ─────────────────────── */}
-      <View className="absolute inset-0" pointerEvents="none">
-        {Array.from({ length: 8 }).map((_, row) =>
-          Array.from({ length: 5 }).map((_, col) => (
-            <View
-              key={`grid-${row}-${col}`}
-              className="absolute border border-white/[0.015]"
-              style={{
-                width: 80,
-                height: 80,
-                left: col * 80,
-                top: row * 80,
-              }}
-            />
-          ))
-        )}
-        <View
-          className="absolute"
-          style={{
-            width: 400,
-            height: 400,
-            borderRadius: 200,
-            backgroundColor: "rgba(111,224,208,0.03)",
-            top: "35%",
-            left: "50%",
-            transform: [{ translateX: -200 }, { translateY: -200 }],
-          }}
-        />
-      </View>
-
-      {/* ── Main Content ──────────────────────────── */}
-      <View className="flex-1 items-center justify-center px-6">
-        <Animated.View style={contentStyle} className="items-center">
-          {/* ── Card Assembly ────────────────────────── */}
-          <View style={{ width: 160, height: 230 }}>
-            {/* Back card */}
-            <View
-              className="absolute rounded-[14px]"
-              style={{
-                width: 150,
-                height: 220,
-                backgroundColor: "#0A0A0A",
-                borderWidth: 1,
-                borderColor: "rgba(111,224,208,0.1)",
-                transform: [{ rotate: "-8deg" }, { translateX: -16 }, { translateY: 4 }],
-              }}
-            >
-              <View className="absolute inset-0 rounded-[14px] items-center justify-center opacity-15">
-                <Text className="text-[#6FE0D0] text-2xl">♠</Text>
-              </View>
-            </View>
-
-            {/* Middle card */}
-            <View
-              className="absolute rounded-[14px]"
-              style={{
-                width: 150,
-                height: 220,
-                backgroundColor: "#0A0A0A",
-                borderWidth: 1,
-                borderColor: "rgba(111,224,208,0.15)",
-                transform: [{ rotate: "5deg" }, { translateX: 8 }, { translateY: 2 }],
-              }}
-            >
-              <View className="absolute inset-0 rounded-[14px] items-center justify-center opacity-20">
-                <Text className="text-[#F27C68] text-2xl">♦</Text>
-              </View>
-            </View>
-
-            {/* Front card (hero) */}
-            <View
-              className="absolute rounded-[14px] items-center justify-center overflow-hidden"
-              style={{
-                width: 160,
-                height: 230,
-                backgroundColor: "#0A0A0A",
-                borderWidth: 1.5,
-                borderColor: "rgba(111,224,208,0.2)",
-                shadowColor: "#6FE0D0",
-                shadowOffset: { width: 0, height: 6 },
-                shadowOpacity: 0.1,
-                shadowRadius: 20,
-                elevation: 10,
-              }}
-            >
-              {/* Top accent line */}
-              <View
-                className="absolute top-0 left-0 right-0"
-                style={{
-                  height: 2,
-                  backgroundColor: "#6FE0D0",
-                  opacity: 0.3,
-                }}
-              />
-
-              {/* Center emblem */}
-              <View
-                className="rounded-full items-center justify-center"
-                style={{
-                  width: 64,
-                  height: 64,
-                  backgroundColor: "rgba(245,201,106,0.08)",
-                  borderWidth: 1.5,
-                  borderColor: "rgba(245,201,106,0.2)",
-                }}
-              >
-                <Text className="text-[#F5C96A]" style={{ fontSize: 32 }}>
-                  ✦
-                </Text>
-              </View>
-
-              {/* Decorative line */}
-              <View
-                className="mt-3"
-                style={{
-                  width: 32,
-                  height: 1,
-                  backgroundColor: "rgba(111,224,208,0.3)",
-                }}
-              />
-
-              {/* Bottom page indicator */}
-              <View className="absolute bottom-3 left-0 right-0 items-center">
-                <Text className="text-white/20 text-[8px] tracking-[0.4em] font-medium">
-                  LOADING
-                </Text>
-              </View>
-
-              {/* Shimmer overlay */}
-              <Animated.View
-                style={[shimmerBorder, {
-                  position: "absolute",
-                  inset: 0,
-                  borderRadius: 14,
-                  borderWidth: 1,
-                  borderColor: "rgba(111,224,208,0.3)",
-                }]}
-                pointerEvents="none"
-              />
-            </View>
-          </View>
-
-          {/* ── Title Block ──────────────────────────── */}
-          <View className="items-center mt-8">
-            <Text className="text-white/30 text-[10px] tracking-[0.4em] font-medium">
-              WELCOME TO
-            </Text>
-            <Text className="text-white text-[32px] font-bold mt-3 text-center leading-tight tracking-wider">
-              GET WAY <Text className="text-[#6FE0D0]">CARDS</Text>
-            </Text>
-            <Text className="text-[#F5C96A]/70 text-[10px] tracking-[0.2em] font-medium mt-3 text-center">
-              READ THE TABLE. FIND YOUR WAY OUT.
-            </Text>
-          </View>
-        </Animated.View>
-      </View>
-
-      {/* ── Progress Bar ──────────────────────────── */}
-      <Animated.View style={fadeStyle} className="absolute bottom-10 left-0 right-0 items-center px-10">
-        <View
-          className="w-full h-[2px] bg-white/10 rounded-full overflow-hidden"
-          onLayout={(e) => setBarWidth(e.nativeEvent.layout.width)}
-        >
-          <Animated.View
-            style={barStyle}
-            className="h-full bg-[#6FE0D0] rounded-full"
-          />
-        </View>
-        <Text className="text-white/25 text-[9px] tracking-[0.3em] font-medium mt-3">
-          SHUFFLING THE DECK
-        </Text>
-      </Animated.View>
-    </View>
-  );
 }
 
 /* ================================================================
@@ -814,8 +632,6 @@ function OnboardingView({
   const { width, height } = useWindowDimensions();
   const cardAnim = useSharedValue(0);
   const fadeAnim = useSharedValue(0);
-
-  const isLandscape = width > height;
 
   const slides = [
     {
@@ -862,22 +678,20 @@ function OnboardingView({
     transform: [{ translateY: interpolate(fadeAnim.value, [0, 1], [15, 0]) }],
   }));
 
-  // Landscape layout
-  if (isLandscape) {
-    return (
+  return (
       <View className="flex-1 bg-black">
         {/* ── Subtle Background Pattern ─────────────── */}
         <View className="absolute inset-0" pointerEvents="none">
-          {Array.from({ length: 12 }).map((_, row) =>
-            Array.from({ length: 8 }).map((_, col) => (
+          {Array.from({ length: 4 }).map((_, row) =>
+            Array.from({ length: 4 }).map((_, col) => (
               <View
                 key={`grid-${row}-${col}`}
                 className="absolute border border-white/[0.02]"
                 style={{
-                  width: 80,
-                  height: 80,
-                  left: col * 80,
-                  top: row * 80,
+                  width: 160,
+                  height: 140,
+                  left: col * 160,
+                  top: row * 140,
                 }}
               />
             ))
@@ -1051,178 +865,6 @@ function OnboardingView({
         )}
       </View>
     );
-  }
-
-  // Portrait layout (fallback)
-  return (
-    <View className="flex-1 bg-black">
-      <View className="absolute inset-0" pointerEvents="none">
-        {Array.from({ length: 8 }).map((_, row) =>
-          Array.from({ length: 5 }).map((_, col) => (
-            <View
-              key={`grid-${row}-${col}`}
-              className="absolute border border-white/[0.02]"
-              style={{
-                width: 80,
-                height: 80,
-                left: col * 80,
-                top: row * 80,
-              }}
-            />
-          ))
-        )}
-        <View
-          className="absolute"
-          style={{
-            width: 400,
-            height: 400,
-            borderRadius: 200,
-            backgroundColor: `${slide.accentColor}08`,
-            top: "35%",
-            left: "50%",
-            transform: [{ translateX: -200 }, { translateY: -200 }],
-          }}
-        />
-      </View>
-
-      <SafeAreaView>
-        <View className="flex-row justify-between items-center px-5 pt-2 pb-1">
-          <Text className="text-white/40 text-[11px] tracking-[0.3em] font-medium">
-            GET WAY <Text className="text-white/60">CARDS</Text>
-          </Text>
-          <View className="flex-row items-center gap-1.5">
-            {slides.map((_, i) => (
-              <View
-                key={i}
-                className="rounded-full"
-                style={{
-                  width: i === page ? 20 : 5,
-                  height: 5,
-                  backgroundColor: i === page ? slide.accentColor : "rgba(255,255,255,0.15)",
-                }}
-              />
-            ))}
-          </View>
-        </View>
-      </SafeAreaView>
-
-      <View className="flex-1 items-center justify-center px-6">
-        <Animated.View style={cardStyle} className="items-center">
-          <View
-            className="rounded-[16px] overflow-hidden"
-            style={{
-              width: 160,
-              height: 220,
-              backgroundColor: "#0A0A0A",
-              borderWidth: 1,
-              borderColor: `${slide.accentColor}20`,
-              shadowColor: slide.accentColor,
-              shadowOffset: { width: 0, height: 8 },
-              shadowOpacity: 0.15,
-              shadowRadius: 24,
-              elevation: 12,
-            }}
-          >
-            <View
-              style={{
-                height: 2,
-                backgroundColor: slide.accentColor,
-                opacity: 0.4,
-              }}
-            />
-            <View className="flex-1 items-center justify-center">
-              <View
-                className="rounded-full items-center justify-center"
-                style={{
-                  width: 56,
-                  height: 56,
-                  backgroundColor: `${slide.accentColor}10`,
-                  borderWidth: 1,
-                  borderColor: `${slide.accentColor}25`,
-                }}
-              >
-                <Text style={{ color: slide.accentColor, fontSize: 32 }}>
-                  {slide.symbol}
-                </Text>
-              </View>
-              <View
-                className="mt-4"
-                style={{
-                  width: 32,
-                  height: 1,
-                  backgroundColor: `${slide.accentColor}30`,
-                }}
-              />
-            </View>
-            <View className="absolute bottom-3 left-0 right-0 items-center">
-              <Text className="text-white/25 text-[8px] tracking-[0.4em] font-medium">
-                {String(page + 1).padStart(2, "0")} / {String(slides.length).padStart(2, "0")}
-              </Text>
-            </View>
-          </View>
-
-          <Animated.View style={textStyle} className="items-center mt-8 max-w-[260px]">
-            <Text
-              className="text-[10px] tracking-[0.4em] font-medium"
-              style={{ color: slide.accentColor }}
-            >
-              STEP {slide.kicker}
-            </Text>
-            <Text className="text-white text-[22px] font-bold mt-3 text-center leading-tight tracking-wide">
-              {slide.title}
-            </Text>
-            <Text
-              className="text-[11px] tracking-[0.2em] font-medium mt-2 text-center"
-              style={{ color: `${slide.accentColor}90` }}
-            >
-              {slide.subtitle}
-            </Text>
-            <Text className="text-white/40 text-[12px] leading-5 mt-4 text-center">
-              {slide.body}
-            </Text>
-          </Animated.View>
-
-          <AnimatedPressable
-            onPress={() =>
-              page === slides.length - 1 ? onFinish() : setPage(page + 1)
-            }
-            className="mt-8 rounded-xl px-8 py-3"
-            style={{
-              backgroundColor: slide.accentColor,
-              shadowColor: slide.accentColor,
-              shadowOffset: { width: 0, height: 4 },
-              shadowOpacity: 0.3,
-              shadowRadius: 12,
-              elevation: 8,
-            }}
-          >
-            <Text className="text-black text-[11px] font-bold tracking-wider">
-              {page === slides.length - 1 ? "GET STARTED" : "CONTINUE"}
-            </Text>
-          </AnimatedPressable>
-        </Animated.View>
-      </View>
-
-      {page < slides.length - 1 && (
-        <AnimatedPressable
-          onPress={onFinish}
-          className="absolute bottom-8 right-5"
-          style={{
-            backgroundColor: "rgba(255,255,255,0.04)",
-            borderWidth: 1,
-            borderColor: "rgba(255,255,255,0.08)",
-            borderRadius: 10,
-            paddingHorizontal: 16,
-            paddingVertical: 10,
-          }}
-        >
-          <Text className="text-white/40 text-[11px] font-medium tracking-wider">
-            SKIP
-          </Text>
-        </AnimatedPressable>
-      )}
-    </View>
-  );
 }
 
 /* ================================================================
@@ -1248,8 +890,6 @@ function MenuView({
   const [showPlayerSelect, setShowPlayerSelect] = useState(false);
   const headerGlow = useSharedValue(0);
   const shimmerX = useSharedValue(0);
-
-  const isLandscape = width > height;
 
   useEffect(() => {
     headerGlow.value = withRepeat(
@@ -1315,19 +955,17 @@ function MenuView({
     },
   ];
 
-  // Landscape layout
-  if (isLandscape) {
-    return (
+  return (
       <View className="flex-1 bg-black">
         {/* ── Background ──────────────────────────────── */}
         <View className="absolute inset-0" pointerEvents="none">
           {/* Grid pattern */}
-          {Array.from({ length: 12 }).map((_, row) =>
-            Array.from({ length: 10 }).map((_, col) => (
+          {Array.from({ length: 4 }).map((_, row) =>
+            Array.from({ length: 5 }).map((_, col) => (
               <View
                 key={`grid-${row}-${col}`}
                 className="absolute border border-white/[0.012]"
-                style={{ width: 80, height: 80, left: col * 80, top: row * 80 }}
+                style={{ width: 160, height: 140, left: col * 160, top: row * 140 }}
               />
             )),
           )}
@@ -1352,21 +990,18 @@ function MenuView({
           />
           {/* Shimmer overlay */}
           <Animated.View
-            style={[shimmerStyle, {
-              position: "absolute", inset: 0,
-              backgroundColor: "rgba(245,201,106,0.03)",
-            }]}
-          />
+          style={[shimmerStyle, {
+            position: "absolute", top: 0, left: 0, right: 0, bottom: 0,
+            backgroundColor: "rgba(245,201,106,0.03)",
+          }]}
+        />
         </View>
 
         {/* ── Floating Cards ─────────────────────────── */}
         <View className="absolute inset-0 overflow-hidden" pointerEvents="none">
           <FloatingDecorCard symbol="♠" x="4%" y="6%" rotation={15} delay={0} />
-          <FloatingDecorCard symbol="♥" x="88%" y="5%" rotation={-12} delay={250} />
           <FloatingDecorCard symbol="♣" x="2%" y="82%" rotation={8} delay={500} />
           <FloatingDecorCard symbol="♦" x="90%" y="80%" rotation={-18} delay={100} />
-          <FloatingDecorCard symbol="♠" x="45%" y="3%" rotation={25} delay={350} />
-          <FloatingDecorCard symbol="♦" x="55%" y="90%" rotation={-8} delay={450} />
         </View>
 
         <SafeAreaView className="flex-1">
@@ -1396,7 +1031,7 @@ function MenuView({
               { label: "Settings", icon: "⚙️", onPress: onSettings },
               { label: "Statistics", icon: "📊", onPress: onStats },
               { label: "How to Play", icon: "📖", onPress: onHowToPlay },
-              { label: "Exit App", icon: "🚪", onPress: () => { if (Platform.OS === "android") require("react-native").BackHandler?.exitApp(); }, destructive: true },
+              { label: "Exit App", icon: "🚪", onPress: () => { if (Platform.OS === "android") BackHandler.exitApp(); }, destructive: true },
             ]} />
           </View>
 
@@ -1441,7 +1076,7 @@ function MenuView({
 
               {/* Footer */}
               <View className="mt-auto pt-4">
-                <Text className="text-white/8 text-[7px] tracking-[0.3em] font-medium">
+                <Text className="text-white/10 text-[7px] tracking-[0.3em] font-medium">
                   GET AWAY THULLA · PREMIUM EDITION · v1.0
                 </Text>
               </View>
@@ -1630,274 +1265,6 @@ function MenuView({
         )}
       </View>
     );
-  }
-
-  // ── Portrait Layout ──────────────────────────────────────
-  return (
-    <View className="flex-1 bg-black">
-      <View className="absolute inset-0" pointerEvents="none">
-        {Array.from({ length: 10 }).map((_, row) =>
-          Array.from({ length: 6 }).map((_, col) => (
-            <View
-              key={`grid-${row}-${col}`}
-              className="absolute border border-white/[0.012]"
-              style={{ width: 70, height: 70, left: col * 70, top: row * 70 }}
-            />
-          )),
-        )}
-        <View
-          className="absolute"
-          style={{
-            width: 450, height: 450, borderRadius: 225,
-            backgroundColor: "rgba(245,201,106,0.02)",
-            top: "25%", left: "50%",
-            transform: [{ translateX: -225 }, { translateY: -225 }],
-          }}
-        />
-        <View
-          className="absolute"
-          style={{
-            width: 350, height: 350, borderRadius: 175,
-            backgroundColor: "rgba(111,224,208,0.015)",
-            top: "60%", left: "30%",
-            transform: [{ translateX: -175 }, { translateY: -175 }],
-          }}
-        />
-        <Animated.View
-          style={[shimmerStyle, {
-            position: "absolute", inset: 0,
-            backgroundColor: "rgba(245,201,106,0.02)",
-          }]}
-        />
-      </View>
-
-      <SafeAreaView className="flex-1 px-5 pt-4 pb-4">
-        {/* ── Header ──────────────────────────────────── */}
-        <View className="flex-row justify-between items-start">
-          <View className="flex-1">
-            <View className="flex-row items-center gap-2 mb-2">
-              <View
-                className="rounded-full"
-                style={{
-                  width: 6, height: 6,
-                  backgroundColor: "#F5C96A",
-                  shadowColor: "#F5C96A",
-                  shadowOffset: { width: 0, height: 0 },
-                  shadowOpacity: 0.8, shadowRadius: 4,
-                }}
-              />
-              <Text className="text-white/35 text-[8px] tracking-[0.35em] font-medium">
-                GET AWAY THULLA
-              </Text>
-              <View className="bg-gold/15 border border-gold/25 rounded-full px-2 py-0.5">
-                <Text className="text-gold text-[6px] tracking-widest font-black">PRO</Text>
-              </View>
-            </View>
-            <Text className="text-white text-[28px] font-black tracking-wider leading-tight">
-              GET AWAY{"\n"}
-              <Text className="text-gold">THULLA</Text>
-            </Text>
-            <View className="flex-row items-center gap-2 mt-2">
-              <View className="h-[1px] w-6 bg-gold/25" />
-              <Text className="text-gold/40 text-[7px] tracking-[0.3em] font-medium">PREMIUM EDITION</Text>
-              <View className="h-[1px] flex-1 bg-gold/8" />
-            </View>
-          </View>
-          <HamburgerMenu items={[
-            { label: "Settings", icon: "⚙️", onPress: onSettings },
-            { label: "Statistics", icon: "📊", onPress: onStats },
-            { label: "How to Play", icon: "📖", onPress: onHowToPlay },
-            { label: "Exit App", icon: "🚪", onPress: () => { if (Platform.OS === "android") require("react-native").BackHandler?.exitApp(); }, destructive: true },
-          ]} />
-        </View>
-
-        {/* ── Coin Balance ───────────────────────────── */}
-        <View className="bg-gold/5 border border-gold/12 rounded-2xl px-4 py-3 mb-3 flex-row items-center gap-3">
-          <View className="w-9 h-9 rounded-full bg-gold/10 border border-gold/20 items-center justify-center">
-            <Text className="text-gold text-base">💰</Text>
-          </View>
-          <View>
-            <Text className="text-gold/35 text-[6px] tracking-[0.25em] font-black">YOUR BALANCE</Text>
-            <Text className="text-gold text-xl font-black">{coinBalance.toLocaleString()}</Text>
-          </View>
-          <View className="ml-auto bg-gold/10 border border-gold/18 rounded-lg px-2.5 py-1">
-            <Text className="text-gold text-[7px] font-black tracking-wider">COINS</Text>
-          </View>
-        </View>
-
-        {/* ── Main Mode Cards ────────────────────────── */}
-        <View className="gap-3 mb-3">
-          {/* PLAY VS CPU */}
-          <AnimatedPressable
-            onPress={() => setShowPlayerSelect(true)}
-            className="rounded-[18px] overflow-hidden"
-          >
-            <View className="p-5 border border-gold/12" style={{ backgroundColor: "#0C0C0C", borderRadius: 18 }}>
-              <View className="absolute top-0 left-5 right-5 h-[1px]" style={{ backgroundColor: "#F5C96A", opacity: 0.25 }} />
-              <View className="absolute bottom-0 left-5 right-5 h-[1px]" style={{ backgroundColor: "#F5C96A", opacity: 0.06 }} />
-              <View className="flex-row items-center">
-                <View className="rounded-2xl items-center justify-center mr-4" style={{ width: 56, height: 72, backgroundColor: "rgba(245,201,106,0.05)", borderWidth: 1, borderColor: "rgba(245,201,106,0.12)" }}>
-                  <Text className="text-gold text-[32px]">♠</Text>
-                </View>
-                <View className="flex-1">
-                  <Text className="text-gold/50 text-[7px] tracking-[0.3em] font-black">SOLO MATCH</Text>
-                  <Text className="text-white text-[16px] font-black mt-1">PLAY VS CPU</Text>
-                  <Text className="text-white/25 text-[10px] mt-1.5">Challenge adaptive AI opponents.</Text>
-                </View>
-                <View className="rounded-full items-center justify-center" style={{ width: 38, height: 38, backgroundColor: "rgba(245,201,106,0.06)", borderWidth: 1, borderColor: "rgba(245,201,106,0.18)" }}>
-                  <Text className="text-gold text-sm font-black">→</Text>
-                </View>
-              </View>
-            </View>
-          </AnimatedPressable>
-
-          {/* PLAY WITH FRIENDS */}
-          <AnimatedPressable
-            onPress={onFriends}
-            className="rounded-[18px] overflow-hidden"
-          >
-            <View className="p-5 border border-aqua/8" style={{ backgroundColor: "#0C0C0C", borderRadius: 18 }}>
-              <View className="absolute top-0 left-5 right-5 h-[1px]" style={{ backgroundColor: "#6FE0D0", opacity: 0.15 }} />
-              <View className="flex-row items-center">
-                <View className="rounded-2xl items-center justify-center mr-4" style={{ width: 56, height: 72, backgroundColor: "rgba(111,224,208,0.04)", borderWidth: 1, borderColor: "rgba(111,224,208,0.1)" }}>
-                  <Text className="text-aqua text-[32px]">♣</Text>
-                </View>
-                <View className="flex-1">
-                  <Text className="text-aqua/40 text-[7px] tracking-[0.3em] font-black">LOCAL TABLE</Text>
-                  <Text className="text-white text-[16px] font-black mt-1">PLAY WITH FRIENDS</Text>
-                  <Text className="text-white/25 text-[10px] mt-1.5">Create a room and deal in with your crew.</Text>
-                </View>
-                <View className="rounded-full items-center justify-center" style={{ width: 38, height: 38, backgroundColor: "rgba(111,224,208,0.04)", borderWidth: 1, borderColor: "rgba(111,224,208,0.1)" }}>
-                  <Text className="text-aqua/60 text-sm font-black">→</Text>
-                </View>
-              </View>
-            </View>
-          </AnimatedPressable>
-        </View>
-
-        {/* ── Premium Features (2x2 Grid) ────────────── */}
-        <View className="flex-row gap-2.5 mb-3">
-          {premiumFeatures.slice(0, 2).map((feat) => (
-            <AnimatedPressable key={feat.label} onPress={feat.onPress} className="flex-1 rounded-2xl overflow-hidden">
-              <View className="p-3.5 border relative" style={{ backgroundColor: "#0C0C0C", borderRadius: 16, borderColor: `${feat.accent}12` }}>
-                {feat.premium && (
-                  <View className="absolute top-2 right-2 bg-gold/15 border border-gold/25 rounded-full px-1.5 py-0.5">
-                    <Text className="text-gold text-[5px] tracking-wider font-black">PRO</Text>
-                  </View>
-                )}
-                <View className="absolute top-0 left-3 right-3 h-[1px]" style={{ backgroundColor: feat.accent, opacity: 0.15 }} />
-                <Text className="text-base">{feat.icon}</Text>
-                <Text className="text-white/35 text-[5px] tracking-[0.25em] font-black mt-1.5">{feat.label}</Text>
-                <Text className="text-white text-[11px] font-black mt-0.5">{feat.title}</Text>
-                <Text className="text-white/20 text-[7px] mt-1 leading-3">{feat.desc}</Text>
-              </View>
-            </AnimatedPressable>
-          ))}
-        </View>
-        <View className="flex-row gap-2.5 mb-3">
-          {premiumFeatures.slice(2, 4).map((feat) => (
-            <AnimatedPressable key={feat.label} onPress={feat.onPress} className="flex-1 rounded-2xl overflow-hidden">
-              <View className="p-3.5 border relative" style={{ backgroundColor: "#0C0C0C", borderRadius: 16, borderColor: `${feat.accent}12` }}>
-                {feat.premium && (
-                  <View className="absolute top-2 right-2 bg-gold/15 border border-gold/25 rounded-full px-1.5 py-0.5">
-                    <Text className="text-gold text-[5px] tracking-wider font-black">PRO</Text>
-                  </View>
-                )}
-                <View className="absolute top-0 left-3 right-3 h-[1px]" style={{ backgroundColor: feat.accent, opacity: 0.15 }} />
-                <Text className="text-base">{feat.icon}</Text>
-                <Text className="text-white/35 text-[5px] tracking-[0.25em] font-black mt-1.5">{feat.label}</Text>
-                <Text className="text-white text-[11px] font-black mt-0.5">{feat.title}</Text>
-                <Text className="text-white/20 text-[7px] mt-1 leading-3">{feat.desc}</Text>
-              </View>
-            </AnimatedPressable>
-          ))}
-        </View>
-
-        {/* ── Utility Row ────────────────────────────── */}
-        <View className="flex-row gap-2.5">
-          <AnimatedPressable onPress={onSettings} className="flex-1 rounded-xl overflow-hidden">
-            <View className="flex-row items-center gap-3 px-4 py-3 border border-white/[0.04]" style={{ backgroundColor: "#0C0C0C", borderRadius: 14 }}>
-              <View className="rounded-lg items-center justify-center" style={{ width: 32, height: 32, backgroundColor: "rgba(245,201,106,0.04)", borderWidth: 1, borderColor: "rgba(245,201,106,0.08)" }}>
-                <Text className="text-gold text-xs">⚙</Text>
-              </View>
-              <View className="flex-1">
-                <Text className="text-white/18 text-[6px] tracking-[0.25em] font-black">PREFERENCES</Text>
-                <Text className="text-white text-[11px] font-black mt-0.5">SETTINGS</Text>
-              </View>
-            </View>
-          </AnimatedPressable>
-          <AnimatedPressable onPress={onStats} className="flex-1 rounded-xl overflow-hidden">
-            <View className="flex-row items-center gap-3 px-4 py-3 border border-white/[0.04]" style={{ backgroundColor: "#0C0C0C", borderRadius: 14 }}>
-              <View className="rounded-lg items-center justify-center" style={{ width: 32, height: 32, backgroundColor: "rgba(111,224,208,0.03)", borderWidth: 1, borderColor: "rgba(111,224,208,0.06)" }}>
-                <Text className="text-aqua text-xs">◆</Text>
-              </View>
-              <View className="flex-1">
-                <Text className="text-white/18 text-[6px] tracking-[0.25em] font-black">YOUR RECORD</Text>
-                <Text className="text-white text-[11px] font-black mt-0.5">STATISTICS</Text>
-              </View>
-            </View>
-          </AnimatedPressable>
-        </View>
-
-        {/* ── Footer ─────────────────────────────────── */}
-        <View className="items-center mt-auto pt-3">
-          <Text className="text-white/6 text-[6px] tracking-[0.3em] font-medium">
-            GET AWAY THULLA · PREMIUM EDITION · v1.0
-          </Text>
-        </View>
-      </SafeAreaView>
-
-      {/* ── Player Select Modal ────────────────────── */}
-      {showPlayerSelect && (
-        <View className="absolute inset-0 items-center justify-center z-50">
-          <View className="absolute inset-0 bg-black/85" />
-          <Animated.View
-            entering={FadeIn.duration(250)}
-            className="rounded-[24px] p-7 w-[310px] border border-gold/10"
-            style={{
-              backgroundColor: "#0A0A0A",
-              shadowColor: "#F5C96A",
-              shadowOffset: { width: 0, height: 14 },
-              shadowOpacity: 0.12,
-              shadowRadius: 36,
-              elevation: 22,
-            }}
-          >
-            <View className="items-center">
-              <View className="w-10 h-10 rounded-full bg-gold/10 border border-gold/20 items-center justify-center mb-2.5">
-                <Text className="text-gold text-lg">♠</Text>
-              </View>
-              <Text className="text-white text-lg font-black text-center">SELECT TABLE SIZE</Text>
-              <Text className="text-white/20 text-[8px] tracking-[0.25em] text-center mt-1">CHOOSE HOW MANY PLAYERS</Text>
-            </View>
-
-            <View className="flex-row gap-2.5 mt-5 justify-center">
-              {[3, 4, 5, 6].map((count) => (
-                <AnimatedPressable
-                  key={count}
-                  onPress={() => { setShowPlayerSelect(false); onPlay(count); }}
-                  className="rounded-xl items-center justify-center"
-                  style={{
-                    width: 60, height: 68,
-                    backgroundColor: "rgba(245,201,106,0.03)",
-                    borderWidth: 1,
-                    borderColor: "rgba(245,201,106,0.12)",
-                  }}
-                >
-                  <Text className="text-white text-xl font-black">{count}</Text>
-                  <Text className="text-white/20 text-[5px] tracking-wider font-black mt-0.5">PLAYERS</Text>
-                </AnimatedPressable>
-              ))}
-            </View>
-
-            <AnimatedPressable onPress={() => setShowPlayerSelect(false)} className="mt-4 py-2">
-              <Text className="text-white/20 text-[9px] font-black text-center tracking-[0.2em]">CANCEL</Text>
-            </AnimatedPressable>
-          </Animated.View>
-        </View>
-      )}
-    </View>
-  );
 }
 
 /* ================================================================
