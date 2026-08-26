@@ -72,7 +72,7 @@ public class Player : MonoBehaviour
             return hand.ToList();
         }
 
-        return hand.Where(card => card != null && BhabhiRulesEngine.IsValidMove(card, topCard)).ToList();
+        return hand.Where(card => card != null && GameRulesEngine.IsValidMove(card, topCard)).ToList();
     }
 
     public bool HasPlayableCard(Card topCard)

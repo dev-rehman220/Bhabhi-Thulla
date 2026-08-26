@@ -11,7 +11,7 @@ node_modules/
 *.sln
 .DS_Store
 Thumbs.db
-rn-bhabhi/android/.gradle
-rn-bhabhi/android/build/
-rn-bhabhi/android/app/build/
-rn-bhabhi/server/dist/
+rn-getaway/android/.gradle
+rn-getaway/android/build/
+rn-getaway/android/app/build/
+rn-getaway/server/dist/

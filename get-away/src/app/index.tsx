@@ -37,16 +37,27 @@ import {
   createGame,
   playCard as enginePlay,
   playCpuTurn,
-} from "@/game/bhabhiGame";
-import type { BhabhiState, GameCard, BhabhiPlayer, Suit } from "@/game/bhabhiGame";
+} from "@/game/gameEngine";
+import type { GameState, GameCard, GamePlayer, Suit } from "@/game/gameEngine";
+import {
+  claimWelcomeBonus,
+  getBalance,
+  placeBet,
+  awardWinnings,
+  applyLeavePenalty,
+  getTransactionHistory,
+  MIN_BET,
+  MAX_BET,
+} from "@/utils/coinWallet";
+import type { Transaction } from "@/utils/coinWallet";
 
 /* ================================================================
    TYPES & CONSTANTS
    ================================================================ */
 
-type Stage = "splash" | "onboarding" | "menu" | "lobby" | "game";
+type Stage = "splash" | "onboarding" | "menu" | "lobby" | "game" | "settings" | "stats" | "howtoplay" | "betting";
 
-/* ── Bhabhi helpers ───────────────────────────────────────── */
+/* ── Game helpers ───────────────────────────────────────── */
 
 const SUIT_SYMBOL: Record<Suit, string> = {
   spades: "♠",
@@ -65,16 +76,16 @@ function cardKey(c: GameCard): string {
   return c.id;
 }
 
-function getHumanPlayer(state: BhabhiState): BhabhiPlayer | undefined {
+function getHumanPlayer(state: GameState): GamePlayer | undefined {
   return state.players.find((p) => p.id === "player-0");
 }
 
-function getLedSuit(state: BhabhiState): Suit | null {
+function getLedSuit(state: GameState): Suit | null {
   if (!state.trick.length) return null;
   return state.trick[0].card.suit;
 }
 
-function getHumanPlayableIds(state: BhabhiState): Set<string> {
+function getHumanPlayableIds(state: GameState): Set<string> {
   const human = getHumanPlayer(state);
   if (!human) return new Set();
   const ledSuit = getLedSuit(state);
@@ -257,10 +268,13 @@ export default function GameScreen() {
   const [onboardingPage, setOnboardingPage] = useState(0);
   const [selectedPlayerCount, setSelectedPlayerCount] = useState(4);
   const [showFeedback, setShowFeedback] = useState(false);
+  const [coinBalance, setCoinBalance] = useState(0);
+  const [currentBet, setCurrentBet] = useState(MIN_BET);
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [stats, setStats] = useState<FeedbackStats>({
     gamesPlayed: 0,
     gamesWon: 0,
-    bhabhiCount: 0,
+    loserCount: 0,
     thullaCount: 0,
     safeCount: 0,
     longestStreak: 0,
@@ -268,9 +282,11 @@ export default function GameScreen() {
   });
   const { playButtonPress } = useSound();
 
-  // Load persisted stats on mount
+  // Load persisted stats + coin balance on mount
   useEffect(() => {
     loadStats().then(setStats);
+    claimWelcomeBonus().then(setCoinBalance);
+    getTransactionHistory().then(setTransactions);
   }, []);
 
   useEffect(() => {
@@ -278,7 +294,7 @@ export default function GameScreen() {
     return () => clearTimeout(timer);
   }, []);
 
-  const cardWidth = Math.max(52, Math.min(74, Math.max(width, height) * 0.095));
+  const cardWidth = Math.max(42, Math.min(56, Math.max(width, height) * 0.07));
 
   /* ── Navigation ───────────────────────────────────────── */
   if (stage === "splash") return <SplashView />;
@@ -290,19 +306,54 @@ export default function GameScreen() {
         onFinish={() => setStage("menu")}
       />
     );
+  if (stage === "settings")
+    return (
+      <SettingsPage
+        onBack={() => setStage("menu")}
+      />
+    );
+  if (stage === "stats")
+    return (
+      <StatsPage
+        stats={stats}
+        transactions={transactions}
+        coinBalance={coinBalance}
+        onBack={() => setStage("menu")}
+      />
+    );
+  if (stage === "howtoplay")
+    return (
+      <HowToPlayPage
+        onBack={() => setStage("menu")}
+      />
+    );
+  if (stage === "betting")
+    return (
+      <BettingPage
+        coinBalance={coinBalance}
+        currentBet={currentBet}
+        setCurrentBet={setCurrentBet}
+        onConfirm={() => setStage("game")}
+        onBack={() => setStage("menu")}
+      />
+    );
   if (stage === "menu")
     return (
       <>
         <MenuView
+          coinBalance={coinBalance}
           onPlay={(playerCount) => {
             playButtonPress();
             setSelectedPlayerCount(playerCount);
-            setStage("game");
+            setStage("betting");
           }}
           onFriends={() => {
             playButtonPress();
             setShowFeedback(true);
           }}
+          onSettings={() => setStage("settings")}
+          onStats={() => setStage("stats")}
+          onHowToPlay={() => setStage("howtoplay")}
         />
         {/* Feedback Summary Modal – shown before going to lobby */}
         <FeedbackSummary
@@ -325,11 +376,19 @@ export default function GameScreen() {
     );
 
   return (
-    <BhabhiGameView
+    <GameView
       cardWidth={cardWidth}
       playerCount={selectedPlayerCount}
-      onLeave={() => {
+      currentBet={currentBet}
+      coinBalance={coinBalance}
+      onLeave={async () => {
+        const newBal = await applyLeavePenalty(currentBet);
+        setCoinBalance(newBal);
         setStage("menu");
+      }}
+      onWin={async (amount) => {
+        const newBal = await awardWinnings(amount);
+        setCoinBalance(newBal);
       }}
       onStatsUpdate={setStats}
     />
@@ -341,58 +400,400 @@ export default function GameScreen() {
    ================================================================ */
 
 function SplashView() {
+  const { width, height } = useWindowDimensions();
   const progress = useSharedValue(0);
   const [barWidth, setBarWidth] = useState(0);
+  const shimmer = useSharedValue(0);
+  const fadeAnim = useSharedValue(0);
+
+  const isLandscape = width > height;
 
   useEffect(() => {
     progress.value = withTiming(1, {
-      duration: 700,
+      duration: 800,
       easing: Easing.out(Easing.cubic),
     });
+    fadeAnim.value = withTiming(1, { duration: 1000 });
+    shimmer.value = withRepeat(
+      withTiming(1, { duration: 2000, easing: Easing.inOut(Easing.sin) }),
+      -1,
+      true,
+    );
   }, []);
 
   const contentStyle = useAnimatedStyle(() => ({
     opacity: progress.value,
-    transform: [{ scale: interpolate(progress.value, [0, 1], [0.82, 1]) }],
+    transform: [{ scale: interpolate(progress.value, [0, 1], [0.9, 1]) }],
   }));
 
   const barStyle = useAnimatedStyle(() => ({
-    width: barWidth * interpolate(progress.value, [0, 1], [0.08, 1]),
+    width: barWidth * interpolate(progress.value, [0, 1], [0.05, 1]),
   }));
 
-  return (
-    <View className="flex-1 bg-ink items-center justify-center px-6">
-      <Animated.View style={contentStyle} className="items-center">
-        <View
-          className="w-24 h-24 rounded-[22px] bg-teal border-2 border-aqua items-center justify-center"
-          style={{ transform: [{ rotate: "8deg" }] }}
-        >
-          <Text className="text-gold text-5xl">✦</Text>
+  const shimmerBorder = useAnimatedStyle(() => ({
+    opacity: interpolate(shimmer.value, [0, 1], [0.2, 0.5]),
+  }));
+
+  const fadeStyle = useAnimatedStyle(() => ({
+    opacity: fadeAnim.value,
+  }));
+
+  // Landscape layout
+  if (isLandscape) {
+    return (
+      <View className="flex-1 bg-black">
+        {/* ── Background Pattern ─────────────────────── */}
+        <View className="absolute inset-0" pointerEvents="none">
+          {Array.from({ length: 12 }).map((_, row) =>
+            Array.from({ length: 10 }).map((_, col) => (
+              <View
+                key={`grid-${row}-${col}`}
+                className="absolute border border-white/[0.015]"
+                style={{
+                  width: 80,
+                  height: 80,
+                  left: col * 80,
+                  top: row * 80,
+                }}
+              />
+            ))
+          )}
+          {/* Ambient glow */}
+          <View
+            className="absolute"
+            style={{
+              width: 500,
+              height: 500,
+              borderRadius: 250,
+              backgroundColor: "rgba(111,224,208,0.03)",
+              top: "50%",
+              left: "40%",
+              transform: [{ translateX: -250 }, { translateY: -250 }],
+            }}
+          />
         </View>
-        <Text className="text-cloud text-[42px] font-black tracking-wider mt-6 text-center">
-          GET WAY
-        </Text>
-        <Text className="text-gold text-[42px] font-black tracking-wider text-center">
-          CARDS
-        </Text>
-        <Text className="text-muted text-[10px] tracking-widest mt-3.5 text-center">
-          READ THE TABLE. FIND YOUR WAY OUT.
-        </Text>
-      </Animated.View>
-      <View className="absolute bottom-8 w-[70%] max-w-[320px] items-center">
+
+        {/* ── Main Content (Landscape) ──────────────── */}
+        <View className="flex-1 flex-row items-center justify-center px-16 gap-20">
+          {/* ── Card Assembly ────────────────────────── */}
+          <Animated.View style={contentStyle}>
+            <View style={{ width: 180, height: 260 }}>
+              {/* Back card */}
+              <View
+                className="absolute rounded-[16px]"
+                style={{
+                  width: 170,
+                  height: 250,
+                  backgroundColor: "#0A0A0A",
+                  borderWidth: 1,
+                  borderColor: "rgba(111,224,208,0.1)",
+                  transform: [{ rotate: "-8deg" }, { translateX: -18 }, { translateY: 5 }],
+                }}
+              >
+                <View className="absolute inset-0 rounded-[16px] items-center justify-center opacity-15">
+                  <Text className="text-[#6FE0D0] text-3xl">♠</Text>
+                </View>
+              </View>
+
+              {/* Middle card */}
+              <View
+                className="absolute rounded-[16px]"
+                style={{
+                  width: 170,
+                  height: 250,
+                  backgroundColor: "#0A0A0A",
+                  borderWidth: 1,
+                  borderColor: "rgba(111,224,208,0.15)",
+                  transform: [{ rotate: "5deg" }, { translateX: 8 }, { translateY: 3 }],
+                }}
+              >
+                <View className="absolute inset-0 rounded-[16px] items-center justify-center opacity-20">
+                  <Text className="text-[#F27C68] text-3xl">♦</Text>
+                </View>
+              </View>
+
+              {/* Front card (hero) */}
+              <View
+                className="absolute rounded-[16px] items-center justify-center overflow-hidden"
+                style={{
+                  width: 180,
+                  height: 260,
+                  backgroundColor: "#0A0A0A",
+                  borderWidth: 1.5,
+                  borderColor: "rgba(111,224,208,0.2)",
+                  shadowColor: "#6FE0D0",
+                  shadowOffset: { width: 0, height: 8 },
+                  shadowOpacity: 0.12,
+                  shadowRadius: 24,
+                  elevation: 12,
+                }}
+              >
+                {/* Top accent line */}
+                <View
+                  className="absolute top-0 left-0 right-0"
+                  style={{
+                    height: 2,
+                    backgroundColor: "#6FE0D0",
+                    opacity: 0.3,
+                  }}
+                />
+
+                {/* Center emblem */}
+                <View
+                  className="rounded-full items-center justify-center"
+                  style={{
+                    width: 72,
+                    height: 72,
+                    backgroundColor: "rgba(245,201,106,0.08)",
+                    borderWidth: 1.5,
+                    borderColor: "rgba(245,201,106,0.2)",
+                  }}
+                >
+                  <Text className="text-[#F5C96A]" style={{ fontSize: 36 }}>
+                    ✦
+                  </Text>
+                </View>
+
+                {/* Decorative line */}
+                <View
+                  className="mt-4"
+                  style={{
+                    width: 36,
+                    height: 1,
+                    backgroundColor: "rgba(111,224,208,0.3)",
+                  }}
+                />
+
+                {/* Bottom page indicator */}
+                <View className="absolute bottom-4 left-0 right-0 items-center">
+                  <Text className="text-white/20 text-[8px] tracking-[0.4em] font-medium">
+                    LOADING
+                  </Text>
+                </View>
+
+                {/* Shimmer overlay */}
+                <Animated.View
+                  style={[shimmerBorder, {
+                    position: "absolute",
+                    inset: 0,
+                    borderRadius: 16,
+                    borderWidth: 1,
+                    borderColor: "rgba(111,224,208,0.3)",
+                  }]}
+                  pointerEvents="none"
+                />
+              </View>
+            </View>
+          </Animated.View>
+
+          {/* ── Text Content ─────────────────────────── */}
+          <Animated.View style={fadeStyle} className="max-w-[340px]">
+            <Text className="text-white/30 text-[10px] tracking-[0.4em] font-medium">
+              WELCOME TO
+            </Text>
+            <Text className="text-white text-[36px] font-bold mt-3 leading-tight tracking-wider">
+              GET WAY <Text className="text-[#6FE0D0]">CARDS</Text>
+            </Text>
+            <Text className="text-[#F5C96A]/70 text-[11px] tracking-[0.2em] font-medium mt-3">
+              READ THE TABLE. FIND YOUR WAY OUT.
+            </Text>
+
+            {/* Progress bar */}
+            <View className="mt-8 w-full max-w-[280px]">
+              <View
+                className="w-full h-[2px] bg-white/10 rounded-full overflow-hidden"
+                onLayout={(e) => setBarWidth(e.nativeEvent.layout.width)}
+              >
+                <Animated.View
+                  style={barStyle}
+                  className="h-full bg-[#6FE0D0] rounded-full"
+                />
+              </View>
+              <Text className="text-white/25 text-[9px] tracking-[0.3em] font-medium mt-3">
+                SHUFFLING THE DECK
+              </Text>
+            </View>
+          </Animated.View>
+        </View>
+      </View>
+    );
+  }
+
+  // Portrait layout (fallback)
+  return (
+    <View className="flex-1 bg-black">
+      {/* ── Background Pattern ─────────────────────── */}
+      <View className="absolute inset-0" pointerEvents="none">
+        {Array.from({ length: 8 }).map((_, row) =>
+          Array.from({ length: 5 }).map((_, col) => (
+            <View
+              key={`grid-${row}-${col}`}
+              className="absolute border border-white/[0.015]"
+              style={{
+                width: 80,
+                height: 80,
+                left: col * 80,
+                top: row * 80,
+              }}
+            />
+          ))
+        )}
         <View
-          className="w-full h-[3px] bg-white/10 rounded-full overflow-hidden"
+          className="absolute"
+          style={{
+            width: 400,
+            height: 400,
+            borderRadius: 200,
+            backgroundColor: "rgba(111,224,208,0.03)",
+            top: "35%",
+            left: "50%",
+            transform: [{ translateX: -200 }, { translateY: -200 }],
+          }}
+        />
+      </View>
+
+      {/* ── Main Content ──────────────────────────── */}
+      <View className="flex-1 items-center justify-center px-6">
+        <Animated.View style={contentStyle} className="items-center">
+          {/* ── Card Assembly ────────────────────────── */}
+          <View style={{ width: 160, height: 230 }}>
+            {/* Back card */}
+            <View
+              className="absolute rounded-[14px]"
+              style={{
+                width: 150,
+                height: 220,
+                backgroundColor: "#0A0A0A",
+                borderWidth: 1,
+                borderColor: "rgba(111,224,208,0.1)",
+                transform: [{ rotate: "-8deg" }, { translateX: -16 }, { translateY: 4 }],
+              }}
+            >
+              <View className="absolute inset-0 rounded-[14px] items-center justify-center opacity-15">
+                <Text className="text-[#6FE0D0] text-2xl">♠</Text>
+              </View>
+            </View>
+
+            {/* Middle card */}
+            <View
+              className="absolute rounded-[14px]"
+              style={{
+                width: 150,
+                height: 220,
+                backgroundColor: "#0A0A0A",
+                borderWidth: 1,
+                borderColor: "rgba(111,224,208,0.15)",
+                transform: [{ rotate: "5deg" }, { translateX: 8 }, { translateY: 2 }],
+              }}
+            >
+              <View className="absolute inset-0 rounded-[14px] items-center justify-center opacity-20">
+                <Text className="text-[#F27C68] text-2xl">♦</Text>
+              </View>
+            </View>
+
+            {/* Front card (hero) */}
+            <View
+              className="absolute rounded-[14px] items-center justify-center overflow-hidden"
+              style={{
+                width: 160,
+                height: 230,
+                backgroundColor: "#0A0A0A",
+                borderWidth: 1.5,
+                borderColor: "rgba(111,224,208,0.2)",
+                shadowColor: "#6FE0D0",
+                shadowOffset: { width: 0, height: 6 },
+                shadowOpacity: 0.1,
+                shadowRadius: 20,
+                elevation: 10,
+              }}
+            >
+              {/* Top accent line */}
+              <View
+                className="absolute top-0 left-0 right-0"
+                style={{
+                  height: 2,
+                  backgroundColor: "#6FE0D0",
+                  opacity: 0.3,
+                }}
+              />
+
+              {/* Center emblem */}
+              <View
+                className="rounded-full items-center justify-center"
+                style={{
+                  width: 64,
+                  height: 64,
+                  backgroundColor: "rgba(245,201,106,0.08)",
+                  borderWidth: 1.5,
+                  borderColor: "rgba(245,201,106,0.2)",
+                }}
+              >
+                <Text className="text-[#F5C96A]" style={{ fontSize: 32 }}>
+                  ✦
+                </Text>
+              </View>
+
+              {/* Decorative line */}
+              <View
+                className="mt-3"
+                style={{
+                  width: 32,
+                  height: 1,
+                  backgroundColor: "rgba(111,224,208,0.3)",
+                }}
+              />
+
+              {/* Bottom page indicator */}
+              <View className="absolute bottom-3 left-0 right-0 items-center">
+                <Text className="text-white/20 text-[8px] tracking-[0.4em] font-medium">
+                  LOADING
+                </Text>
+              </View>
+
+              {/* Shimmer overlay */}
+              <Animated.View
+                style={[shimmerBorder, {
+                  position: "absolute",
+                  inset: 0,
+                  borderRadius: 14,
+                  borderWidth: 1,
+                  borderColor: "rgba(111,224,208,0.3)",
+                }]}
+                pointerEvents="none"
+              />
+            </View>
+          </View>
+
+          {/* ── Title Block ──────────────────────────── */}
+          <View className="items-center mt-8">
+            <Text className="text-white/30 text-[10px] tracking-[0.4em] font-medium">
+              WELCOME TO
+            </Text>
+            <Text className="text-white text-[32px] font-bold mt-3 text-center leading-tight tracking-wider">
+              GET WAY <Text className="text-[#6FE0D0]">CARDS</Text>
+            </Text>
+            <Text className="text-[#F5C96A]/70 text-[10px] tracking-[0.2em] font-medium mt-3 text-center">
+              READ THE TABLE. FIND YOUR WAY OUT.
+            </Text>
+          </View>
+        </Animated.View>
+      </View>
+
+      {/* ── Progress Bar ──────────────────────────── */}
+      <Animated.View style={fadeStyle} className="absolute bottom-10 left-0 right-0 items-center px-10">
+        <View
+          className="w-full h-[2px] bg-white/10 rounded-full overflow-hidden"
           onLayout={(e) => setBarWidth(e.nativeEvent.layout.width)}
         >
           <Animated.View
             style={barStyle}
-            className="h-full bg-gold rounded-full"
+            className="h-full bg-[#6FE0D0] rounded-full"
           />
         </View>
-        <Text className="text-aqua text-[9px] tracking-widest mt-2.5 font-extrabold">
+        <Text className="text-white/25 text-[9px] tracking-[0.3em] font-medium mt-3">
           SHUFFLING THE DECK
         </Text>
-      </View>
+      </Animated.View>
     </View>
   );
 }
@@ -410,95 +811,417 @@ function OnboardingView({
   setPage: (p: number) => void;
   onFinish: () => void;
 }) {
+  const { width, height } = useWindowDimensions();
+  const cardAnim = useSharedValue(0);
+  const fadeAnim = useSharedValue(0);
+
+  const isLandscape = width > height;
+
   const slides = [
     {
-      kicker: "01 · READ THE TABLE",
-      title: "MATCH YOUR WAY OUT",
+      kicker: "01",
+      title: "READ THE TABLE",
+      subtitle: "MATCH YOUR WAY OUT",
       body: "Play a card that shares the suit or rank of the discard pile.",
       symbol: "♠",
+      accentColor: "#6FE0D0",
     },
     {
-      kicker: "02 · OWN YOUR TURN",
-      title: "CHOOSE WITH PURPOSE",
+      kicker: "02",
+      title: "OWN YOUR TURN",
+      subtitle: "CHOOSE WITH PURPOSE",
       body: "Draw when you need a new option. Every card in your hand changes the table.",
       symbol: "♦",
+      accentColor: "#F27C68",
     },
     {
-      kicker: "03 · GET AWAY",
-      title: "EMPTY YOUR HAND",
+      kicker: "03",
+      title: "GET AWAY",
+      subtitle: "EMPTY YOUR HAND",
       body: "Be the first to play every card and turn smart moves into a high score.",
       symbol: "★",
+      accentColor: "#F5C96A",
     },
   ];
   const slide = slides[page];
 
-  return (
-    <SafeAreaView className="flex-1 bg-navy px-6 pt-3 pb-5">
-      <View className="flex-row justify-between items-center">
-        <Text className="text-cloud text-[15px] font-black tracking-wider">
-          GET WAY <Text className="text-gold">CARDS</Text>
-        </Text>
-        <Pressable onPress={onFinish} className="p-2.5">
-          <Text className="text-muted text-[11px] font-extrabold tracking-wider">
-            SKIP
-          </Text>
-        </Pressable>
-      </View>
-      <View className="flex-1 flex-row items-center justify-center gap-6 flex-wrap">
-        <View
-          className="bg-teal rounded-[18px] border-2 border-aqua items-center justify-center"
-          style={{
-            width: 150,
-            height: 210,
-            transform: [{ rotate: "-8deg" }],
-            shadowColor: "#000",
-            shadowOpacity: 0.3,
-            shadowRadius: 12,
-            elevation: 8,
-          }}
-        >
-          <Text className="text-gold text-[90px] font-black">
-            {slide.symbol}
-          </Text>
-          <View className="w-[68px] h-[2px] bg-aqua mt-3" />
-          <Text className="text-cloud text-xs font-black absolute bottom-4 right-4">
-            0{page + 1}
-          </Text>
+  useEffect(() => {
+    cardAnim.value = 0;
+    fadeAnim.value = 0;
+    cardAnim.value = withSpring(1, { damping: 20, stiffness: 90 });
+    fadeAnim.value = withTiming(1, { duration: 600 });
+  }, [page]);
+
+  const cardStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: interpolate(cardAnim.value, [0, 1], [0.92, 1]) }],
+    opacity: cardAnim.value,
+  }));
+
+  const textStyle = useAnimatedStyle(() => ({
+    opacity: fadeAnim.value,
+    transform: [{ translateY: interpolate(fadeAnim.value, [0, 1], [15, 0]) }],
+  }));
+
+  // Landscape layout
+  if (isLandscape) {
+    return (
+      <View className="flex-1 bg-black">
+        {/* ── Subtle Background Pattern ─────────────── */}
+        <View className="absolute inset-0" pointerEvents="none">
+          {Array.from({ length: 12 }).map((_, row) =>
+            Array.from({ length: 8 }).map((_, col) => (
+              <View
+                key={`grid-${row}-${col}`}
+                className="absolute border border-white/[0.02]"
+                style={{
+                  width: 80,
+                  height: 80,
+                  left: col * 80,
+                  top: row * 80,
+                }}
+              />
+            ))
+          )}
+          <View
+            className="absolute"
+            style={{
+              width: 500,
+              height: 500,
+              borderRadius: 250,
+              backgroundColor: `${slide.accentColor}06`,
+              top: "50%",
+              left: "35%",
+              transform: [{ translateX: -250 }, { translateY: -250 }],
+            }}
+          />
         </View>
-        <View className="max-w-[200px]">
-          <Text className="text-aqua text-[10px] tracking-widest font-black">
-            {slide.kicker}
-          </Text>
-          <Text className="text-cloud text-[26px] font-black mt-2.5">
-            {slide.title}
-          </Text>
-          <Text className="text-white/60 text-[14px] leading-6 mt-3">
-            {slide.body}
-          </Text>
-          <View className="flex-row gap-1.5 mt-7">
-            {slides.map((_, i) => (
-              <Pressable key={i} onPress={() => setPage(i)}>
+
+        {/* ── Top Bar ───────────────────────────────── */}
+        <SafeAreaView>
+          <View className="flex-row justify-between items-center px-8 pt-3 pb-2">
+            <Text className="text-white/40 text-[11px] tracking-[0.3em] font-medium">
+              GET WAY <Text className="text-white/60">CARDS</Text>
+            </Text>
+            <View className="flex-row items-center gap-1.5">
+              {slides.map((_, i) => (
                 <View
-                  className={`h-2 rounded-full ${
-                    i === page ? "w-7 bg-gold" : "w-2 bg-white/20"
-                  }`}
+                  key={i}
+                  className="rounded-full"
+                  style={{
+                    width: i === page ? 20 : 5,
+                    height: 5,
+                    backgroundColor: i === page ? slide.accentColor : "rgba(255,255,255,0.15)",
+                  }}
                 />
-              </Pressable>
+              ))}
+            </View>
+          </View>
+        </SafeAreaView>
+
+        {/* ── Main Content (Landscape) ──────────────── */}
+        <View className="flex-1 flex-row items-center justify-center px-10 gap-16">
+          {/* ── Card ──────────────────────────────── */}
+          <Animated.View style={cardStyle}>
+            <View
+              className="rounded-[16px] overflow-hidden"
+              style={{
+                width: 180,
+                height: 250,
+                backgroundColor: "#0A0A0A",
+                borderWidth: 1,
+                borderColor: `${slide.accentColor}20`,
+                shadowColor: slide.accentColor,
+                shadowOffset: { width: 0, height: 8 },
+                shadowOpacity: 0.15,
+                shadowRadius: 24,
+                elevation: 12,
+              }}
+            >
+              {/* Top accent line */}
+              <View
+                style={{
+                  height: 2,
+                  backgroundColor: slide.accentColor,
+                  opacity: 0.4,
+                }}
+              />
+
+              {/* Card content */}
+              <View className="flex-1 items-center justify-center">
+                <View
+                  className="rounded-full items-center justify-center"
+                  style={{
+                    width: 64,
+                    height: 64,
+                    backgroundColor: `${slide.accentColor}10`,
+                    borderWidth: 1,
+                    borderColor: `${slide.accentColor}25`,
+                  }}
+                >
+                  <Text
+                    style={{ color: slide.accentColor, fontSize: 36 }}
+                  >
+                    {slide.symbol}
+                  </Text>
+                </View>
+
+                <View
+                  className="mt-4"
+                  style={{
+                    width: 32,
+                    height: 1,
+                    backgroundColor: `${slide.accentColor}30`,
+                  }}
+                />
+              </View>
+
+              {/* Bottom page indicator */}
+              <View className="absolute bottom-3 left-0 right-0 items-center">
+                <Text className="text-white/25 text-[8px] tracking-[0.4em] font-medium">
+                  {String(page + 1).padStart(2, "0")} / {String(slides.length).padStart(2, "0")}
+                </Text>
+              </View>
+            </View>
+          </Animated.View>
+
+          {/* ── Text Content ───────────────────────── */}
+          <Animated.View style={textStyle} className="max-w-[320px]">
+            <Text
+              className="text-[10px] tracking-[0.4em] font-medium"
+              style={{ color: slide.accentColor }}
+            >
+              STEP {slide.kicker}
+            </Text>
+
+            <Text className="text-white text-[26px] font-bold mt-3 leading-tight tracking-wide">
+              {slide.title}
+            </Text>
+
+            <Text
+              className="text-[12px] tracking-[0.2em] font-medium mt-2"
+              style={{ color: `${slide.accentColor}90` }}
+            >
+              {slide.subtitle}
+            </Text>
+
+            <Text className="text-white/40 text-[13px] leading-5 mt-4">
+              {slide.body}
+            </Text>
+
+            {/* ── Action Button ──────────────────────── */}
+            <AnimatedPressable
+              onPress={() =>
+                page === slides.length - 1 ? onFinish() : setPage(page + 1)
+              }
+              className="mt-6 rounded-xl px-8 py-3 self-start"
+              style={{
+                backgroundColor: slide.accentColor,
+                shadowColor: slide.accentColor,
+                shadowOffset: { width: 0, height: 4 },
+                shadowOpacity: 0.3,
+                shadowRadius: 12,
+                elevation: 8,
+              }}
+            >
+              <Text className="text-black text-[11px] font-bold tracking-wider">
+                {page === slides.length - 1 ? "GET STARTED" : "CONTINUE"}
+              </Text>
+            </AnimatedPressable>
+          </Animated.View>
+        </View>
+
+        {/* ── SKIP Button – Hidden on last (third) slide ──── */}
+        {page < slides.length - 1 && (
+          <AnimatedPressable
+            onPress={onFinish}
+            className="absolute bottom-6 right-8"
+            style={{
+              backgroundColor: "rgba(255,255,255,0.04)",
+              borderWidth: 1,
+              borderColor: "rgba(255,255,255,0.08)",
+              borderRadius: 10,
+              paddingHorizontal: 16,
+              paddingVertical: 10,
+            }}
+          >
+            <Text className="text-white/40 text-[11px] font-medium tracking-wider">
+              SKIP
+            </Text>
+          </AnimatedPressable>
+        )}
+      </View>
+    );
+  }
+
+  // Portrait layout (fallback)
+  return (
+    <View className="flex-1 bg-black">
+      <View className="absolute inset-0" pointerEvents="none">
+        {Array.from({ length: 8 }).map((_, row) =>
+          Array.from({ length: 5 }).map((_, col) => (
+            <View
+              key={`grid-${row}-${col}`}
+              className="absolute border border-white/[0.02]"
+              style={{
+                width: 80,
+                height: 80,
+                left: col * 80,
+                top: row * 80,
+              }}
+            />
+          ))
+        )}
+        <View
+          className="absolute"
+          style={{
+            width: 400,
+            height: 400,
+            borderRadius: 200,
+            backgroundColor: `${slide.accentColor}08`,
+            top: "35%",
+            left: "50%",
+            transform: [{ translateX: -200 }, { translateY: -200 }],
+          }}
+        />
+      </View>
+
+      <SafeAreaView>
+        <View className="flex-row justify-between items-center px-5 pt-2 pb-1">
+          <Text className="text-white/40 text-[11px] tracking-[0.3em] font-medium">
+            GET WAY <Text className="text-white/60">CARDS</Text>
+          </Text>
+          <View className="flex-row items-center gap-1.5">
+            {slides.map((_, i) => (
+              <View
+                key={i}
+                className="rounded-full"
+                style={{
+                  width: i === page ? 20 : 5,
+                  height: 5,
+                  backgroundColor: i === page ? slide.accentColor : "rgba(255,255,255,0.15)",
+                }}
+              />
             ))}
           </View>
+        </View>
+      </SafeAreaView>
+
+      <View className="flex-1 items-center justify-center px-6">
+        <Animated.View style={cardStyle} className="items-center">
+          <View
+            className="rounded-[16px] overflow-hidden"
+            style={{
+              width: 160,
+              height: 220,
+              backgroundColor: "#0A0A0A",
+              borderWidth: 1,
+              borderColor: `${slide.accentColor}20`,
+              shadowColor: slide.accentColor,
+              shadowOffset: { width: 0, height: 8 },
+              shadowOpacity: 0.15,
+              shadowRadius: 24,
+              elevation: 12,
+            }}
+          >
+            <View
+              style={{
+                height: 2,
+                backgroundColor: slide.accentColor,
+                opacity: 0.4,
+              }}
+            />
+            <View className="flex-1 items-center justify-center">
+              <View
+                className="rounded-full items-center justify-center"
+                style={{
+                  width: 56,
+                  height: 56,
+                  backgroundColor: `${slide.accentColor}10`,
+                  borderWidth: 1,
+                  borderColor: `${slide.accentColor}25`,
+                }}
+              >
+                <Text style={{ color: slide.accentColor, fontSize: 32 }}>
+                  {slide.symbol}
+                </Text>
+              </View>
+              <View
+                className="mt-4"
+                style={{
+                  width: 32,
+                  height: 1,
+                  backgroundColor: `${slide.accentColor}30`,
+                }}
+              />
+            </View>
+            <View className="absolute bottom-3 left-0 right-0 items-center">
+              <Text className="text-white/25 text-[8px] tracking-[0.4em] font-medium">
+                {String(page + 1).padStart(2, "0")} / {String(slides.length).padStart(2, "0")}
+              </Text>
+            </View>
+          </View>
+
+          <Animated.View style={textStyle} className="items-center mt-8 max-w-[260px]">
+            <Text
+              className="text-[10px] tracking-[0.4em] font-medium"
+              style={{ color: slide.accentColor }}
+            >
+              STEP {slide.kicker}
+            </Text>
+            <Text className="text-white text-[22px] font-bold mt-3 text-center leading-tight tracking-wide">
+              {slide.title}
+            </Text>
+            <Text
+              className="text-[11px] tracking-[0.2em] font-medium mt-2 text-center"
+              style={{ color: `${slide.accentColor}90` }}
+            >
+              {slide.subtitle}
+            </Text>
+            <Text className="text-white/40 text-[12px] leading-5 mt-4 text-center">
+              {slide.body}
+            </Text>
+          </Animated.View>
+
           <AnimatedPressable
             onPress={() =>
               page === slides.length - 1 ? onFinish() : setPage(page + 1)
             }
-            className="self-start bg-gold rounded-lg px-6 py-3.5 mt-7"
+            className="mt-8 rounded-xl px-8 py-3"
+            style={{
+              backgroundColor: slide.accentColor,
+              shadowColor: slide.accentColor,
+              shadowOffset: { width: 0, height: 4 },
+              shadowOpacity: 0.3,
+              shadowRadius: 12,
+              elevation: 8,
+            }}
           >
-            <Text className="text-ink text-[11px] font-black tracking-wider">
-              {page === slides.length - 1 ? "PLAY NOW  →" : "CONTINUE  →"}
+            <Text className="text-black text-[11px] font-bold tracking-wider">
+              {page === slides.length - 1 ? "GET STARTED" : "CONTINUE"}
             </Text>
           </AnimatedPressable>
-        </View>
+        </Animated.View>
       </View>
-    </SafeAreaView>
+
+      {page < slides.length - 1 && (
+        <AnimatedPressable
+          onPress={onFinish}
+          className="absolute bottom-8 right-5"
+          style={{
+            backgroundColor: "rgba(255,255,255,0.04)",
+            borderWidth: 1,
+            borderColor: "rgba(255,255,255,0.08)",
+            borderRadius: 10,
+            paddingHorizontal: 16,
+            paddingVertical: 10,
+          }}
+        >
+          <Text className="text-white/40 text-[11px] font-medium tracking-wider">
+            SKIP
+          </Text>
+        </AnimatedPressable>
+      )}
+    </View>
   );
 }
 
@@ -507,218 +1230,1175 @@ function OnboardingView({
    ================================================================ */
 
 function MenuView({
+  coinBalance,
   onPlay,
   onFriends,
+  onSettings,
+  onStats,
+  onHowToPlay,
 }: {
+  coinBalance: number;
   onPlay: (playerCount: number) => void;
   onFriends: () => void;
+  onSettings: () => void;
+  onStats: () => void;
+  onHowToPlay: () => void;
 }) {
-  const [notice, setNotice] = useState("SELECT A MODE TO BEGIN");
+  const { width, height } = useWindowDimensions();
   const [showPlayerSelect, setShowPlayerSelect] = useState(false);
+  const headerGlow = useSharedValue(0);
+  const shimmerX = useSharedValue(0);
 
-  const menuItems: MenuItem[] = [
+  const isLandscape = width > height;
+
+  useEffect(() => {
+    headerGlow.value = withRepeat(
+      withSequence(
+        withTiming(1, { duration: 3000, easing: Easing.inOut(Easing.sin) }),
+        withTiming(0, { duration: 3000, easing: Easing.inOut(Easing.sin) }),
+      ),
+      -1,
+      true,
+    );
+    shimmerX.value = withRepeat(
+      withTiming(1, { duration: 4000, easing: Easing.inOut(Easing.sin) }),
+      -1,
+      true,
+    );
+  }, []);
+
+  const glowAnimStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(headerGlow.value, [0, 1], [0.2, 0.5]),
+  }));
+
+  const shimmerStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(shimmerX.value, [0, 0.5, 1], [0.03, 0.08, 0.03]),
+  }));
+
+  /* ── Premium Feature Cards Data ─────────────────────── */
+  const premiumFeatures = [
     {
-      label: "Settings",
-      icon: "⚙️",
-      onPress: () =>
-        setNotice("SETTINGS: SOUND, HAPTICS AND MOTION ARE READY TO TUNE."),
+      icon: "👑",
+      label: "BATTLE PASS",
+      title: "SEASON 1",
+      desc: "Earn rewards as you play. Unlock exclusive card backs & themes.",
+      accent: "#F5C96A",
+      premium: false,
+      onPress: () => {},
     },
     {
-      label: "Statistics",
-      icon: "📊",
-      onPress: () =>
-        setNotice("YOUR STATS WILL APPEAR HERE AFTER YOUR FIRST MATCH."),
+      icon: "🏆",
+      label: "TOURNAMENT",
+      title: "RANKED PLAY",
+      desc: "Compete in weekly tournaments. Climb the leaderboard.",
+      accent: "#6FE0D0",
+      premium: true,
+      onPress: () => {},
     },
     {
-      label: "How to Play",
-      icon: "📖",
-      onPress: () =>
-        setNotice(
-          "BHABHI THULLA: Follow the lead suit! If you can't, you hit a Thulla and the trick winner picks up all cards. Empty your hand to be SAFE. The last player standing is the BHABHI!",
-        ),
+      icon: "🎨",
+      label: "THEMES",
+      title: "TABLE SKINS",
+      desc: "Customize your felt. Unlock premium table designs.",
+      accent: "#C084FC",
+      premium: true,
+      onPress: () => {},
     },
     {
-      label: "Exit App",
-      icon: "🚪",
-      onPress: () => {
-        if (Platform.OS === "android") {
-          // eslint-disable-next-line @typescript-eslint/no-require-imports
-          require("react-native").BackHandler?.exitApp();
-        }
-      },
-      destructive: true,
+      icon: "⚡",
+      label: "DAILY",
+      title: "CHALLENGES",
+      desc: "Complete daily tasks for bonus XP and exclusive loot.",
+      accent: "#FB923C",
+      premium: false,
+      onPress: () => {},
+    },
+  ];
+
+  // Landscape layout
+  if (isLandscape) {
+    return (
+      <View className="flex-1 bg-black">
+        {/* ── Background ──────────────────────────────── */}
+        <View className="absolute inset-0" pointerEvents="none">
+          {/* Grid pattern */}
+          {Array.from({ length: 12 }).map((_, row) =>
+            Array.from({ length: 10 }).map((_, col) => (
+              <View
+                key={`grid-${row}-${col}`}
+                className="absolute border border-white/[0.012]"
+                style={{ width: 80, height: 80, left: col * 80, top: row * 80 }}
+              />
+            )),
+          )}
+          {/* Ambient gradient */}
+          <View
+            className="absolute"
+            style={{
+              width: 700, height: 700, borderRadius: 350,
+              backgroundColor: "rgba(245,201,106,0.02)",
+              top: "40%", left: "35%",
+              transform: [{ translateX: -350 }, { translateY: -350 }],
+            }}
+          />
+          <View
+            className="absolute"
+            style={{
+              width: 500, height: 500, borderRadius: 250,
+              backgroundColor: "rgba(111,224,208,0.015)",
+              top: "20%", left: "60%",
+              transform: [{ translateX: -250 }, { translateY: -250 }],
+            }}
+          />
+          {/* Shimmer overlay */}
+          <Animated.View
+            style={[shimmerStyle, {
+              position: "absolute", inset: 0,
+              backgroundColor: "rgba(245,201,106,0.03)",
+            }]}
+          />
+        </View>
+
+        {/* ── Floating Cards ─────────────────────────── */}
+        <View className="absolute inset-0 overflow-hidden" pointerEvents="none">
+          <FloatingDecorCard symbol="♠" x="4%" y="6%" rotation={15} delay={0} />
+          <FloatingDecorCard symbol="♥" x="88%" y="5%" rotation={-12} delay={250} />
+          <FloatingDecorCard symbol="♣" x="2%" y="82%" rotation={8} delay={500} />
+          <FloatingDecorCard symbol="♦" x="90%" y="80%" rotation={-18} delay={100} />
+          <FloatingDecorCard symbol="♠" x="45%" y="3%" rotation={25} delay={350} />
+          <FloatingDecorCard symbol="♦" x="55%" y="90%" rotation={-8} delay={450} />
+        </View>
+
+        <SafeAreaView className="flex-1">
+          {/* ── Top Bar ───────────────────────────────── */}
+          <View className="flex-row justify-between items-center px-8 pt-3 pb-2">
+            <View className="flex-row items-center gap-3">
+              <View
+                className="rounded-full"
+                style={{
+                  width: 7, height: 7,
+                  backgroundColor: "#F5C96A",
+                  shadowColor: "#F5C96A",
+                  shadowOffset: { width: 0, height: 0 },
+                  shadowOpacity: 0.9, shadowRadius: 5,
+                }}
+              />
+              <Text className="text-white/40 text-[10px] tracking-[0.3em] font-medium">
+                GET AWAY THULLA
+              </Text>
+              <View className="bg-gold/15 border border-gold/30 rounded-full px-2.5 py-0.5 ml-1">
+                <Text className="text-gold text-[7px] tracking-widest font-black">
+                  PRO
+                </Text>
+              </View>
+            </View>
+            <HamburgerMenu items={[
+              { label: "Settings", icon: "⚙️", onPress: onSettings },
+              { label: "Statistics", icon: "📊", onPress: onStats },
+              { label: "How to Play", icon: "📖", onPress: onHowToPlay },
+              { label: "Exit App", icon: "🚪", onPress: () => { if (Platform.OS === "android") require("react-native").BackHandler?.exitApp(); }, destructive: true },
+            ]} />
+          </View>
+
+          {/* ── Main Content (Landscape) ──────────────── */}
+          <View className="flex-1 flex-row items-center justify-center px-8 gap-10">
+            {/* ── Left Side: Hero Title ───────────────── */}
+            <View className="flex-1 max-w-[380px]">
+              {/* Title */}
+              <View className="relative">
+                <Animated.View style={[glowAnimStyle]} className="absolute -left-6 -top-6" pointerEvents="none">
+                  <View style={{ width: 200, height: 80, borderRadius: 40, backgroundColor: "rgba(245,201,106,0.05)" }} />
+                </Animated.View>
+                <Text className="text-white/60 text-[11px] tracking-[0.4em] font-medium mb-2">
+                  PREMIUM EDITION
+                </Text>
+                <Text className="text-white text-[38px] font-black tracking-wider leading-tight">
+                  GET AWAY{"\n"}
+                  <Text className="text-gold">THULLA</Text>
+                </Text>
+                <View className="flex-row items-center gap-2 mt-3">
+                  <View className="h-[1px] w-8 bg-gold/30" />
+                  <Text className="text-gold/50 text-[8px] tracking-[0.3em] font-medium">
+                    CLASSIC CARD GAME
+                  </Text>
+                  <View className="h-[1px] flex-1 bg-gold/10" />
+                </View>
+              </View>
+
+              {/* Coin Balance */}
+              <View className="bg-gold/5 border border-gold/15 rounded-2xl px-5 py-3 mt-6 flex-row items-center gap-3">
+                <View className="w-10 h-10 rounded-full bg-gold/10 border border-gold/25 items-center justify-center">
+                  <Text className="text-gold text-lg">💰</Text>
+                </View>
+                <View>
+                  <Text className="text-gold/40 text-[7px] tracking-[0.25em] font-black">YOUR BALANCE</Text>
+                  <Text className="text-gold text-2xl font-black">{coinBalance.toLocaleString()}</Text>
+                </View>
+                <View className="ml-auto bg-gold/10 border border-gold/20 rounded-lg px-3 py-1.5">
+                  <Text className="text-gold text-[8px] font-black tracking-wider">COINS</Text>
+                </View>
+              </View>
+
+              {/* Footer */}
+              <View className="mt-auto pt-4">
+                <Text className="text-white/8 text-[7px] tracking-[0.3em] font-medium">
+                  GET AWAY THULLA · PREMIUM EDITION · v1.0
+                </Text>
+              </View>
+            </View>
+
+            {/* ── Right Side: Mode Cards ──────────────── */}
+            <View className="flex-1 max-w-[520px] gap-3">
+              {/* ── PLAY VS CPU ─────────────────────── */}
+              <AnimatedPressable
+                onPress={() => setShowPlayerSelect(true)}
+                className="rounded-[18px] overflow-hidden"
+                style={{
+                  shadowColor: "#F5C96A",
+                  shadowOffset: { width: 0, height: 8 },
+                  shadowOpacity: 0.12,
+                  shadowRadius: 20,
+                  elevation: 10,
+                }}
+              >
+                <View className="p-5 border border-gold/15" style={{ backgroundColor: "#0C0C0C", borderRadius: 18 }}>
+                  <View className="absolute top-0 left-6 right-6 h-[1px]" style={{ backgroundColor: "#F5C96A", opacity: 0.3 }} />
+                  <View className="absolute bottom-0 left-6 right-6 h-[1px]" style={{ backgroundColor: "#F5C96A", opacity: 0.08 }} />
+                  <View className="flex-row items-center">
+                    <View className="rounded-2xl items-center justify-center mr-5" style={{ width: 60, height: 76, backgroundColor: "rgba(245,201,106,0.06)", borderWidth: 1, borderColor: "rgba(245,201,106,0.15)" }}>
+                      <Text className="text-gold text-[36px]">♠</Text>
+                    </View>
+                    <View className="flex-1">
+                      <Text className="text-gold/60 text-[8px] tracking-[0.3em] font-black">SOLO MATCH</Text>
+                      <Text className="text-white text-[18px] font-black mt-1">PLAY VS CPU</Text>
+                      <Text className="text-white/30 text-[11px] mt-1.5 leading-4">Challenge adaptive AI opponents across multiple difficulty levels.</Text>
+                    </View>
+                    <View className="rounded-full items-center justify-center" style={{ width: 40, height: 40, backgroundColor: "rgba(245,201,106,0.08)", borderWidth: 1, borderColor: "rgba(245,201,106,0.25)" }}>
+                      <Text className="text-gold text-base font-black">→</Text>
+                    </View>
+                  </View>
+                </View>
+              </AnimatedPressable>
+
+              {/* ── PLAY WITH FRIENDS ────────────────── */}
+              <AnimatedPressable
+                onPress={onFriends}
+                className="rounded-[18px] overflow-hidden"
+                style={{
+                  shadowColor: "#6FE0D0",
+                  shadowOffset: { width: 0, height: 8 },
+                  shadowOpacity: 0.08,
+                  shadowRadius: 20,
+                  elevation: 8,
+                }}
+              >
+                <View className="p-5 border border-aqua/10" style={{ backgroundColor: "#0C0C0C", borderRadius: 18 }}>
+                  <View className="absolute top-0 left-6 right-6 h-[1px]" style={{ backgroundColor: "#6FE0D0", opacity: 0.2 }} />
+                  <View className="flex-row items-center">
+                    <View className="rounded-2xl items-center justify-center mr-5" style={{ width: 60, height: 76, backgroundColor: "rgba(111,224,208,0.05)", borderWidth: 1, borderColor: "rgba(111,224,208,0.12)" }}>
+                      <Text className="text-aqua text-[36px]">♣</Text>
+                    </View>
+                    <View className="flex-1">
+                      <Text className="text-aqua/50 text-[8px] tracking-[0.3em] font-black">LOCAL TABLE</Text>
+                      <Text className="text-white text-[18px] font-black mt-1">PLAY WITH FRIENDS</Text>
+                      <Text className="text-white/30 text-[11px] mt-1.5 leading-4">Create a room and deal in with your crew on the same network.</Text>
+                    </View>
+                    <View className="rounded-full items-center justify-center" style={{ width: 40, height: 40, backgroundColor: "rgba(111,224,208,0.06)", borderWidth: 1, borderColor: "rgba(111,224,208,0.15)" }}>
+                      <Text className="text-aqua/70 text-base font-black">→</Text>
+                    </View>
+                  </View>
+                </View>
+              </AnimatedPressable>
+
+              {/* ── Premium Features Grid ────────────── */}
+              <View className="flex-row gap-3 mt-1">
+                {premiumFeatures.map((feat, i) => (
+                  <AnimatedPressable
+                    key={feat.label}
+                    onPress={feat.onPress}
+                    className="flex-1 rounded-2xl overflow-hidden"
+                    style={{
+                      shadowColor: feat.accent,
+                      shadowOffset: { width: 0, height: 4 },
+                      shadowOpacity: 0.06,
+                      shadowRadius: 12,
+                      elevation: 5,
+                    }}
+                  >
+                    <View
+                      className="p-3.5 border relative"
+                      style={{
+                        backgroundColor: "#0C0C0C",
+                        borderRadius: 16,
+                        borderColor: `${feat.accent}15`,
+                      }}
+                    >
+                      {/* Premium badge */}
+                      {feat.premium && (
+                        <View className="absolute top-2 right-2 bg-gold/20 border border-gold/30 rounded-full px-1.5 py-0.5">
+                          <Text className="text-gold text-[5px] tracking-wider font-black">PRO</Text>
+                        </View>
+                      )}
+                      {/* Top accent */}
+                      <View className="absolute top-0 left-4 right-4 h-[1px]" style={{ backgroundColor: feat.accent, opacity: 0.2 }} />
+                      <Text className="text-lg">{feat.icon}</Text>
+                      <Text className="text-white/40 text-[6px] tracking-[0.25em] font-black mt-2">{feat.label}</Text>
+                      <Text className="text-white text-[11px] font-black mt-0.5">{feat.title}</Text>
+                      <Text className="text-white/25 text-[8px] mt-1 leading-3">{feat.desc}</Text>
+                    </View>
+                  </AnimatedPressable>
+                ))}
+              </View>
+
+              {/* ── Utility Row ──────────────────────── */}
+              <View className="flex-row gap-3 mt-1">
+                <AnimatedPressable onPress={onSettings} className="flex-1 rounded-xl overflow-hidden">
+                  <View className="flex-row items-center gap-3 px-4 py-3 border border-white/[0.04]" style={{ backgroundColor: "#0C0C0C", borderRadius: 14 }}>
+                    <View className="rounded-lg items-center justify-center" style={{ width: 34, height: 34, backgroundColor: "rgba(245,201,106,0.05)", borderWidth: 1, borderColor: "rgba(245,201,106,0.1)" }}>
+                      <Text className="text-gold text-xs">⚙</Text>
+                    </View>
+                    <View className="flex-1">
+                      <Text className="text-white/20 text-[6px] tracking-[0.25em] font-black">PREFERENCES</Text>
+                      <Text className="text-white text-[11px] font-black mt-0.5">SETTINGS</Text>
+                    </View>
+                  </View>
+                </AnimatedPressable>
+                <AnimatedPressable onPress={onStats} className="flex-1 rounded-xl overflow-hidden">
+                  <View className="flex-row items-center gap-3 px-4 py-3 border border-white/[0.04]" style={{ backgroundColor: "#0C0C0C", borderRadius: 14 }}>
+                    <View className="rounded-lg items-center justify-center" style={{ width: 34, height: 34, backgroundColor: "rgba(111,224,208,0.04)", borderWidth: 1, borderColor: "rgba(111,224,208,0.08)" }}>
+                      <Text className="text-aqua text-xs">◆</Text>
+                    </View>
+                    <View className="flex-1">
+                      <Text className="text-white/20 text-[6px] tracking-[0.25em] font-black">YOUR RECORD</Text>
+                      <Text className="text-white text-[11px] font-black mt-0.5">STATISTICS</Text>
+                    </View>
+                  </View>
+                </AnimatedPressable>
+              </View>
+            </View>
+          </View>
+        </SafeAreaView>
+
+        {/* ── Player Select Modal ───────────────────── */}
+        {showPlayerSelect && (
+          <View className="absolute inset-0 items-center justify-center z-50">
+            <View className="absolute inset-0 bg-black/85" />
+            <Animated.View
+              entering={FadeIn.duration(250)}
+              className="rounded-[24px] p-8 w-[340px] border border-gold/10"
+              style={{
+                backgroundColor: "#0A0A0A",
+                shadowColor: "#F5C96A",
+                shadowOffset: { width: 0, height: 16 },
+                shadowOpacity: 0.15,
+                shadowRadius: 40,
+                elevation: 25,
+              }}
+            >
+              <View className="items-center">
+                <View className="w-12 h-12 rounded-full bg-gold/10 border border-gold/20 items-center justify-center mb-3">
+                  <Text className="text-gold text-xl">♠</Text>
+                </View>
+                <Text className="text-white text-xl font-black text-center">SELECT TABLE SIZE</Text>
+                <Text className="text-white/25 text-[9px] tracking-[0.25em] text-center mt-1.5">CHOOSE HOW MANY PLAYERS</Text>
+              </View>
+
+              <View className="flex-row gap-3 mt-6 justify-center">
+                {[3, 4, 5, 6].map((count) => (
+                  <AnimatedPressable
+                    key={count}
+                    onPress={() => { setShowPlayerSelect(false); onPlay(count); }}
+                    className="rounded-2xl items-center justify-center"
+                    style={{
+                      width: 64, height: 76,
+                      backgroundColor: "rgba(245,201,106,0.04)",
+                      borderWidth: 1,
+                      borderColor: "rgba(245,201,106,0.15)",
+                    }}
+                  >
+                    <Text className="text-white text-2xl font-black">{count}</Text>
+                    <Text className="text-white/25 text-[6px] tracking-wider font-black mt-1">PLAYERS</Text>
+                  </AnimatedPressable>
+                ))}
+              </View>
+
+              <AnimatedPressable onPress={() => setShowPlayerSelect(false)} className="mt-5 py-2.5">
+                <Text className="text-white/25 text-[10px] font-black text-center tracking-[0.2em]">CANCEL</Text>
+              </AnimatedPressable>
+            </Animated.View>
+          </View>
+        )}
+      </View>
+    );
+  }
+
+  // ── Portrait Layout ──────────────────────────────────────
+  return (
+    <View className="flex-1 bg-black">
+      <View className="absolute inset-0" pointerEvents="none">
+        {Array.from({ length: 10 }).map((_, row) =>
+          Array.from({ length: 6 }).map((_, col) => (
+            <View
+              key={`grid-${row}-${col}`}
+              className="absolute border border-white/[0.012]"
+              style={{ width: 70, height: 70, left: col * 70, top: row * 70 }}
+            />
+          )),
+        )}
+        <View
+          className="absolute"
+          style={{
+            width: 450, height: 450, borderRadius: 225,
+            backgroundColor: "rgba(245,201,106,0.02)",
+            top: "25%", left: "50%",
+            transform: [{ translateX: -225 }, { translateY: -225 }],
+          }}
+        />
+        <View
+          className="absolute"
+          style={{
+            width: 350, height: 350, borderRadius: 175,
+            backgroundColor: "rgba(111,224,208,0.015)",
+            top: "60%", left: "30%",
+            transform: [{ translateX: -175 }, { translateY: -175 }],
+          }}
+        />
+        <Animated.View
+          style={[shimmerStyle, {
+            position: "absolute", inset: 0,
+            backgroundColor: "rgba(245,201,106,0.02)",
+          }]}
+        />
+      </View>
+
+      <SafeAreaView className="flex-1 px-5 pt-4 pb-4">
+        {/* ── Header ──────────────────────────────────── */}
+        <View className="flex-row justify-between items-start">
+          <View className="flex-1">
+            <View className="flex-row items-center gap-2 mb-2">
+              <View
+                className="rounded-full"
+                style={{
+                  width: 6, height: 6,
+                  backgroundColor: "#F5C96A",
+                  shadowColor: "#F5C96A",
+                  shadowOffset: { width: 0, height: 0 },
+                  shadowOpacity: 0.8, shadowRadius: 4,
+                }}
+              />
+              <Text className="text-white/35 text-[8px] tracking-[0.35em] font-medium">
+                GET AWAY THULLA
+              </Text>
+              <View className="bg-gold/15 border border-gold/25 rounded-full px-2 py-0.5">
+                <Text className="text-gold text-[6px] tracking-widest font-black">PRO</Text>
+              </View>
+            </View>
+            <Text className="text-white text-[28px] font-black tracking-wider leading-tight">
+              GET AWAY{"\n"}
+              <Text className="text-gold">THULLA</Text>
+            </Text>
+            <View className="flex-row items-center gap-2 mt-2">
+              <View className="h-[1px] w-6 bg-gold/25" />
+              <Text className="text-gold/40 text-[7px] tracking-[0.3em] font-medium">PREMIUM EDITION</Text>
+              <View className="h-[1px] flex-1 bg-gold/8" />
+            </View>
+          </View>
+          <HamburgerMenu items={[
+            { label: "Settings", icon: "⚙️", onPress: onSettings },
+            { label: "Statistics", icon: "📊", onPress: onStats },
+            { label: "How to Play", icon: "📖", onPress: onHowToPlay },
+            { label: "Exit App", icon: "🚪", onPress: () => { if (Platform.OS === "android") require("react-native").BackHandler?.exitApp(); }, destructive: true },
+          ]} />
+        </View>
+
+        {/* ── Coin Balance ───────────────────────────── */}
+        <View className="bg-gold/5 border border-gold/12 rounded-2xl px-4 py-3 mb-3 flex-row items-center gap-3">
+          <View className="w-9 h-9 rounded-full bg-gold/10 border border-gold/20 items-center justify-center">
+            <Text className="text-gold text-base">💰</Text>
+          </View>
+          <View>
+            <Text className="text-gold/35 text-[6px] tracking-[0.25em] font-black">YOUR BALANCE</Text>
+            <Text className="text-gold text-xl font-black">{coinBalance.toLocaleString()}</Text>
+          </View>
+          <View className="ml-auto bg-gold/10 border border-gold/18 rounded-lg px-2.5 py-1">
+            <Text className="text-gold text-[7px] font-black tracking-wider">COINS</Text>
+          </View>
+        </View>
+
+        {/* ── Main Mode Cards ────────────────────────── */}
+        <View className="gap-3 mb-3">
+          {/* PLAY VS CPU */}
+          <AnimatedPressable
+            onPress={() => setShowPlayerSelect(true)}
+            className="rounded-[18px] overflow-hidden"
+          >
+            <View className="p-5 border border-gold/12" style={{ backgroundColor: "#0C0C0C", borderRadius: 18 }}>
+              <View className="absolute top-0 left-5 right-5 h-[1px]" style={{ backgroundColor: "#F5C96A", opacity: 0.25 }} />
+              <View className="absolute bottom-0 left-5 right-5 h-[1px]" style={{ backgroundColor: "#F5C96A", opacity: 0.06 }} />
+              <View className="flex-row items-center">
+                <View className="rounded-2xl items-center justify-center mr-4" style={{ width: 56, height: 72, backgroundColor: "rgba(245,201,106,0.05)", borderWidth: 1, borderColor: "rgba(245,201,106,0.12)" }}>
+                  <Text className="text-gold text-[32px]">♠</Text>
+                </View>
+                <View className="flex-1">
+                  <Text className="text-gold/50 text-[7px] tracking-[0.3em] font-black">SOLO MATCH</Text>
+                  <Text className="text-white text-[16px] font-black mt-1">PLAY VS CPU</Text>
+                  <Text className="text-white/25 text-[10px] mt-1.5">Challenge adaptive AI opponents.</Text>
+                </View>
+                <View className="rounded-full items-center justify-center" style={{ width: 38, height: 38, backgroundColor: "rgba(245,201,106,0.06)", borderWidth: 1, borderColor: "rgba(245,201,106,0.18)" }}>
+                  <Text className="text-gold text-sm font-black">→</Text>
+                </View>
+              </View>
+            </View>
+          </AnimatedPressable>
+
+          {/* PLAY WITH FRIENDS */}
+          <AnimatedPressable
+            onPress={onFriends}
+            className="rounded-[18px] overflow-hidden"
+          >
+            <View className="p-5 border border-aqua/8" style={{ backgroundColor: "#0C0C0C", borderRadius: 18 }}>
+              <View className="absolute top-0 left-5 right-5 h-[1px]" style={{ backgroundColor: "#6FE0D0", opacity: 0.15 }} />
+              <View className="flex-row items-center">
+                <View className="rounded-2xl items-center justify-center mr-4" style={{ width: 56, height: 72, backgroundColor: "rgba(111,224,208,0.04)", borderWidth: 1, borderColor: "rgba(111,224,208,0.1)" }}>
+                  <Text className="text-aqua text-[32px]">♣</Text>
+                </View>
+                <View className="flex-1">
+                  <Text className="text-aqua/40 text-[7px] tracking-[0.3em] font-black">LOCAL TABLE</Text>
+                  <Text className="text-white text-[16px] font-black mt-1">PLAY WITH FRIENDS</Text>
+                  <Text className="text-white/25 text-[10px] mt-1.5">Create a room and deal in with your crew.</Text>
+                </View>
+                <View className="rounded-full items-center justify-center" style={{ width: 38, height: 38, backgroundColor: "rgba(111,224,208,0.04)", borderWidth: 1, borderColor: "rgba(111,224,208,0.1)" }}>
+                  <Text className="text-aqua/60 text-sm font-black">→</Text>
+                </View>
+              </View>
+            </View>
+          </AnimatedPressable>
+        </View>
+
+        {/* ── Premium Features (2x2 Grid) ────────────── */}
+        <View className="flex-row gap-2.5 mb-3">
+          {premiumFeatures.slice(0, 2).map((feat) => (
+            <AnimatedPressable key={feat.label} onPress={feat.onPress} className="flex-1 rounded-2xl overflow-hidden">
+              <View className="p-3.5 border relative" style={{ backgroundColor: "#0C0C0C", borderRadius: 16, borderColor: `${feat.accent}12` }}>
+                {feat.premium && (
+                  <View className="absolute top-2 right-2 bg-gold/15 border border-gold/25 rounded-full px-1.5 py-0.5">
+                    <Text className="text-gold text-[5px] tracking-wider font-black">PRO</Text>
+                  </View>
+                )}
+                <View className="absolute top-0 left-3 right-3 h-[1px]" style={{ backgroundColor: feat.accent, opacity: 0.15 }} />
+                <Text className="text-base">{feat.icon}</Text>
+                <Text className="text-white/35 text-[5px] tracking-[0.25em] font-black mt-1.5">{feat.label}</Text>
+                <Text className="text-white text-[11px] font-black mt-0.5">{feat.title}</Text>
+                <Text className="text-white/20 text-[7px] mt-1 leading-3">{feat.desc}</Text>
+              </View>
+            </AnimatedPressable>
+          ))}
+        </View>
+        <View className="flex-row gap-2.5 mb-3">
+          {premiumFeatures.slice(2, 4).map((feat) => (
+            <AnimatedPressable key={feat.label} onPress={feat.onPress} className="flex-1 rounded-2xl overflow-hidden">
+              <View className="p-3.5 border relative" style={{ backgroundColor: "#0C0C0C", borderRadius: 16, borderColor: `${feat.accent}12` }}>
+                {feat.premium && (
+                  <View className="absolute top-2 right-2 bg-gold/15 border border-gold/25 rounded-full px-1.5 py-0.5">
+                    <Text className="text-gold text-[5px] tracking-wider font-black">PRO</Text>
+                  </View>
+                )}
+                <View className="absolute top-0 left-3 right-3 h-[1px]" style={{ backgroundColor: feat.accent, opacity: 0.15 }} />
+                <Text className="text-base">{feat.icon}</Text>
+                <Text className="text-white/35 text-[5px] tracking-[0.25em] font-black mt-1.5">{feat.label}</Text>
+                <Text className="text-white text-[11px] font-black mt-0.5">{feat.title}</Text>
+                <Text className="text-white/20 text-[7px] mt-1 leading-3">{feat.desc}</Text>
+              </View>
+            </AnimatedPressable>
+          ))}
+        </View>
+
+        {/* ── Utility Row ────────────────────────────── */}
+        <View className="flex-row gap-2.5">
+          <AnimatedPressable onPress={onSettings} className="flex-1 rounded-xl overflow-hidden">
+            <View className="flex-row items-center gap-3 px-4 py-3 border border-white/[0.04]" style={{ backgroundColor: "#0C0C0C", borderRadius: 14 }}>
+              <View className="rounded-lg items-center justify-center" style={{ width: 32, height: 32, backgroundColor: "rgba(245,201,106,0.04)", borderWidth: 1, borderColor: "rgba(245,201,106,0.08)" }}>
+                <Text className="text-gold text-xs">⚙</Text>
+              </View>
+              <View className="flex-1">
+                <Text className="text-white/18 text-[6px] tracking-[0.25em] font-black">PREFERENCES</Text>
+                <Text className="text-white text-[11px] font-black mt-0.5">SETTINGS</Text>
+              </View>
+            </View>
+          </AnimatedPressable>
+          <AnimatedPressable onPress={onStats} className="flex-1 rounded-xl overflow-hidden">
+            <View className="flex-row items-center gap-3 px-4 py-3 border border-white/[0.04]" style={{ backgroundColor: "#0C0C0C", borderRadius: 14 }}>
+              <View className="rounded-lg items-center justify-center" style={{ width: 32, height: 32, backgroundColor: "rgba(111,224,208,0.03)", borderWidth: 1, borderColor: "rgba(111,224,208,0.06)" }}>
+                <Text className="text-aqua text-xs">◆</Text>
+              </View>
+              <View className="flex-1">
+                <Text className="text-white/18 text-[6px] tracking-[0.25em] font-black">YOUR RECORD</Text>
+                <Text className="text-white text-[11px] font-black mt-0.5">STATISTICS</Text>
+              </View>
+            </View>
+          </AnimatedPressable>
+        </View>
+
+        {/* ── Footer ─────────────────────────────────── */}
+        <View className="items-center mt-auto pt-3">
+          <Text className="text-white/6 text-[6px] tracking-[0.3em] font-medium">
+            GET AWAY THULLA · PREMIUM EDITION · v1.0
+          </Text>
+        </View>
+      </SafeAreaView>
+
+      {/* ── Player Select Modal ────────────────────── */}
+      {showPlayerSelect && (
+        <View className="absolute inset-0 items-center justify-center z-50">
+          <View className="absolute inset-0 bg-black/85" />
+          <Animated.View
+            entering={FadeIn.duration(250)}
+            className="rounded-[24px] p-7 w-[310px] border border-gold/10"
+            style={{
+              backgroundColor: "#0A0A0A",
+              shadowColor: "#F5C96A",
+              shadowOffset: { width: 0, height: 14 },
+              shadowOpacity: 0.12,
+              shadowRadius: 36,
+              elevation: 22,
+            }}
+          >
+            <View className="items-center">
+              <View className="w-10 h-10 rounded-full bg-gold/10 border border-gold/20 items-center justify-center mb-2.5">
+                <Text className="text-gold text-lg">♠</Text>
+              </View>
+              <Text className="text-white text-lg font-black text-center">SELECT TABLE SIZE</Text>
+              <Text className="text-white/20 text-[8px] tracking-[0.25em] text-center mt-1">CHOOSE HOW MANY PLAYERS</Text>
+            </View>
+
+            <View className="flex-row gap-2.5 mt-5 justify-center">
+              {[3, 4, 5, 6].map((count) => (
+                <AnimatedPressable
+                  key={count}
+                  onPress={() => { setShowPlayerSelect(false); onPlay(count); }}
+                  className="rounded-xl items-center justify-center"
+                  style={{
+                    width: 60, height: 68,
+                    backgroundColor: "rgba(245,201,106,0.03)",
+                    borderWidth: 1,
+                    borderColor: "rgba(245,201,106,0.12)",
+                  }}
+                >
+                  <Text className="text-white text-xl font-black">{count}</Text>
+                  <Text className="text-white/20 text-[5px] tracking-wider font-black mt-0.5">PLAYERS</Text>
+                </AnimatedPressable>
+              ))}
+            </View>
+
+            <AnimatedPressable onPress={() => setShowPlayerSelect(false)} className="mt-4 py-2">
+              <Text className="text-white/20 text-[9px] font-black text-center tracking-[0.2em]">CANCEL</Text>
+            </AnimatedPressable>
+          </Animated.View>
+        </View>
+      )}
+    </View>
+  );
+}
+
+/* ================================================================
+   SETTINGS PAGE
+   ================================================================ */
+
+function SettingsPage({ onBack }: { onBack: () => void }) {
+  const { width } = useWindowDimensions();
+  const [soundEnabled, setSoundEnabled] = useState(true);
+  const [hapticsEnabled, setHapticsEnabled] = useState(true);
+
+  const Toggle = ({
+    value,
+    onToggle,
+  }: {
+    value: boolean;
+    onToggle: () => void;
+  }) => (
+    <Pressable
+      onPress={onToggle}
+      className="w-12 h-6 rounded-full items-center justify-center"
+      style={{
+        backgroundColor: value ? "rgba(245,201,106,0.2)" : "rgba(255,255,255,0.05)",
+        borderWidth: 1,
+        borderColor: value ? "rgba(245,201,106,0.4)" : "rgba(255,255,255,0.08)",
+      }}
+    >
+      <View
+        className="w-5 h-5 rounded-full"
+        style={{
+          backgroundColor: value ? "#F5C96A" : "#333",
+          transform: [{ translateX: value ? 10 : -10 }],
+        }}
+      />
+    </Pressable>
+  );
+
+  const SettingRow = ({
+    icon,
+    title,
+    subtitle,
+    children,
+  }: {
+    icon: string;
+    title: string;
+    subtitle: string;
+    children: ReactNode;
+  }) => (
+    <View
+      className="flex-row items-center justify-between px-5 py-4 border border-white/[0.04]"
+      style={{ backgroundColor: "#0C0C0C", borderRadius: 16 }}
+    >
+      <View className="flex-row items-center gap-4 flex-1">
+        <View
+          className="rounded-xl items-center justify-center"
+          style={{
+            width: 42,
+            height: 42,
+            backgroundColor: "rgba(245,201,106,0.04)",
+            borderWidth: 1,
+            borderColor: "rgba(245,201,106,0.08)",
+          }}
+        >
+          <Text className="text-lg">{icon}</Text>
+        </View>
+        <View>
+          <Text className="text-white text-[13px] font-black">{title}</Text>
+          <Text className="text-white/25 text-[9px] mt-0.5">{subtitle}</Text>
+        </View>
+      </View>
+      {children}
+    </View>
+  );
+
+  return (
+    <View className="flex-1 bg-black">
+      <SafeAreaView className="flex-1 px-5 pt-3">
+        {/* Header */}
+        <View className="flex-row items-center gap-3 mb-6">
+          <Pressable onPress={onBack} className="py-2 px-3 rounded-lg bg-gold/10 border border-gold/20">
+            <Text className="text-gold text-sm font-black">← BACK</Text>
+          </Pressable>
+          <View>
+            <Text className="text-white/40 text-[7px] tracking-[0.3em] font-black">PREFERENCES</Text>
+            <Text className="text-white text-xl font-black">SETTINGS</Text>
+          </View>
+        </View>
+
+        <ScrollView showsVerticalScrollIndicator={false} className="flex-1">
+          <View className="gap-3">
+            <SettingRow icon="🔊" title="Sound Effects" subtitle="Card sounds, banners & alerts">
+              <Toggle value={soundEnabled} onToggle={() => setSoundEnabled(!soundEnabled)} />
+            </SettingRow>
+            <SettingRow icon="📳" title="Haptic Feedback" subtitle="Vibration on play & win">
+              <Toggle value={hapticsEnabled} onToggle={() => setHapticsEnabled(!hapticsEnabled)} />
+            </SettingRow>
+            <SettingRow icon="🌙" title="Dark Mode" subtitle="Always on (premium feel)">
+              <View className="bg-gold/15 border border-gold/25 rounded-lg px-2.5 py-1">
+                <Text className="text-gold text-[8px] font-black">ON</Text>
+              </View>
+            </SettingRow>
+            <SettingRow icon="🎵" title="Background Music" subtitle="Toggle lobby & table music">
+              <Toggle value={false} onToggle={() => {}} />
+            </SettingRow>
+            <SettingRow icon="🔔" title="Notifications" subtitle="Tournament & challenge alerts">
+              <Toggle value={true} onToggle={() => {}} />
+            </SettingRow>
+          </View>
+
+          <View className="mt-8 mb-6">
+            <Text className="text-white/15 text-[8px] tracking-[0.3em] font-black mb-3">ABOUT</Text>
+            <View className="bg-white/[0.02] border border-white/[0.04] rounded-2xl p-5">
+              <Text className="text-white text-sm font-black">GET AWAY THULLA</Text>
+              <Text className="text-white/20 text-[10px] mt-1">Version 1.0.0 · Premium Edition</Text>
+              <Text className="text-white/15 text-[9px] mt-3 leading-4">
+                A classic South Asian card game reimagined with premium visuals, competitive betting, and online multiplayer.
+              </Text>
+            </View>
+          </View>
+        </ScrollView>
+      </SafeAreaView>
+    </View>
+  );
+}
+
+/* ================================================================
+   STATS PAGE
+   ================================================================ */
+
+function StatsPage({
+  stats,
+  transactions,
+  coinBalance,
+  onBack,
+}: {
+  stats: FeedbackStats;
+  transactions: Transaction[];
+  coinBalance: number;
+  onBack: () => void;
+}) {
+  const winRate = stats.gamesPlayed > 0
+    ? Math.round((stats.gamesWon / stats.gamesPlayed) * 100)
+    : 0;
+
+  const StatCard = ({
+    icon,
+    label,
+    value,
+    accent,
+  }: {
+    icon: string;
+    label: string;
+    value: string | number;
+    accent: string;
+  }) => (
+    <View
+      className="flex-1 rounded-2xl p-4 border"
+      style={{
+        backgroundColor: "#0C0C0C",
+        borderColor: `${accent}12`,
+      }}
+    >
+      <View
+        className="rounded-lg items-center justify-center mb-2"
+        style={{
+          width: 36,
+          height: 36,
+          backgroundColor: `${accent}08`,
+          borderWidth: 1,
+          borderColor: `${accent}15`,
+        }}
+      >
+        <Text className="text-sm">{icon}</Text>
+      </View>
+      <Text className="text-white text-xl font-black">{value}</Text>
+      <Text className="text-white/25 text-[7px] tracking-[0.2em] font-black mt-1">{label}</Text>
+    </View>
+  );
+
+  return (
+    <View className="flex-1 bg-black">
+      <SafeAreaView className="flex-1 px-5 pt-3">
+        <View className="flex-row items-center gap-3 mb-5">
+          <Pressable onPress={onBack} className="py-2 px-3 rounded-lg bg-gold/10 border border-gold/20">
+            <Text className="text-gold text-sm font-black">← BACK</Text>
+          </Pressable>
+          <View className="flex-1">
+            <Text className="text-white/40 text-[7px] tracking-[0.3em] font-black">YOUR RECORD</Text>
+            <Text className="text-white text-xl font-black">STATISTICS</Text>
+          </View>
+          <View className="bg-gold/10 border border-gold/20 rounded-xl px-3 py-1.5">
+            <Text className="text-gold text-xs font-black">💰 {coinBalance.toLocaleString()}</Text>
+          </View>
+        </View>
+
+        <ScrollView showsVerticalScrollIndicator={false} className="flex-1">
+          {/* Win Rate Banner */}
+          <View
+            className="rounded-2xl p-5 mb-4 border border-gold/10"
+            style={{ backgroundColor: "#0C0C0C" }}
+          >
+            <View className="flex-row items-center justify-between">
+              <View>
+                <Text className="text-white/30 text-[8px] tracking-[0.25em] font-black">WIN RATE</Text>
+                <Text className="text-gold text-4xl font-black mt-1">{winRate}%</Text>
+              </View>
+              <View className="items-end">
+                <Text className="text-white/30 text-[8px] tracking-[0.25em] font-black">LEVEL</Text>
+                <Text className="text-white text-3xl font-black mt-1">
+                  {Math.floor(stats.gamesPlayed / 5) + 1}
+                </Text>
+              </View>
+            </View>
+            <View className="mt-3 h-2 bg-white/5 rounded-full overflow-hidden">
+              <View
+                className="h-full bg-gold rounded-full"
+                style={{ width: `${Math.min(100, (stats.gamesPlayed % 5) * 20)}%` }}
+              />
+            </View>
+            <Text className="text-white/20 text-[8px] mt-1.5">
+              {5 - (stats.gamesPlayed % 5)} more wins to next level
+            </Text>
+          </View>
+
+          {/* Stat Grid */}
+          <View className="flex-row gap-2.5 mb-2.5">
+            <StatCard icon="🎮" label="GAMES PLAYED" value={stats.gamesPlayed} accent="#F5C96A" />
+            <StatCard icon="🏆" label="GAMES WON" value={stats.gamesWon} accent="#6FE0D0" />
+          </View>
+          <View className="flex-row gap-2.5 mb-2.5">
+            <StatCard icon="💀" label="TIMES LOSER" value={stats.loserCount} accent="#F27C68" />
+            <StatCard icon="⚠️" label="THULLAS HIT" value={stats.thullaCount} accent="#C084FC" />
+          </View>
+          <View className="flex-row gap-2.5 mb-4">
+            <StatCard icon="✅" label="SAFE COUNT" value={stats.safeCount} accent="#6FE0D0" />
+            <StatCard icon="🔥" label="BEST STREAK" value={stats.longestStreak} accent="#FB923C" />
+          </View>
+
+          {/* Recent Transactions */}
+          <Text className="text-white/15 text-[8px] tracking-[0.3em] font-black mb-3">RECENT TRANSACTIONS</Text>
+          <View className="bg-white/[0.02] border border-white/[0.04] rounded-2xl overflow-hidden mb-6">
+            {transactions.length === 0 ? (
+              <View className="p-6 items-center">
+                <Text className="text-white/15 text-[10px]">No transactions yet. Play a game!</Text>
+              </View>
+            ) : (
+              transactions.slice(0, 10).map((tx) => (
+                <View
+                  key={tx.id}
+                  className="flex-row items-center justify-between px-4 py-3 border-b border-white/[0.03]"
+                >
+                  <View className="flex-1">
+                    <Text className="text-white text-[11px] font-black">{tx.description}</Text>
+                    <Text className="text-white/15 text-[8px] mt-0.5">
+                      {new Date(tx.timestamp).toLocaleDateString()}
+                    </Text>
+                  </View>
+                  <Text
+                    className={`text-sm font-black ${
+                      tx.type === "win" || tx.type === "earn" || tx.type === "bonus"
+                        ? "text-gold"
+                        : "text-coral"
+                    }`}
+                  >
+                    {tx.type === "win" || tx.type === "earn" || tx.type === "bonus" ? "+" : "-"}
+                    {tx.amount.toLocaleString()}
+                  </Text>
+                </View>
+              ))
+            )}
+          </View>
+        </ScrollView>
+      </SafeAreaView>
+    </View>
+  );
+}
+
+/* ================================================================
+   HOW TO PLAY PAGE
+   ================================================================ */
+
+function HowToPlayPage({ onBack }: { onBack: () => void }) {
+  const rules = [
+    {
+      icon: "🃏",
+      title: "DEAL",
+      desc: "Each player is dealt 8 cards from a standard 52-card deck. The remaining cards form the draw pile.",
+    },
+    {
+      icon: "👑",
+      title: "LEAD SUIT",
+      desc: "The first player of each trick chooses the lead suit. All players must follow suit if they can.",
+    },
+    {
+      icon: "⚠️",
+      title: "THULLA",
+      desc: "If you cannot follow the lead suit, you hit a THULLA! The trick winner collects all played cards.",
+    },
+    {
+      icon: "✅",
+      title: "SAFE",
+      desc: "Empty your hand before everyone else to become SAFE. Safe players are eliminated from the loser count.",
+    },
+    {
+      icon: "💀",
+      title: "THE LOSER",
+      desc: "The last player standing with cards in hand is the LOSER! They collect all remaining tricks.",
+    },
+    {
+      icon: "💰",
+      title: "BETTING",
+      desc: "Place a bet before each game. Winner takes the pot. Leave early? You pay double the bet as penalty.",
     },
   ];
 
   return (
-    <View className="flex-1 bg-ink">
-      <View className="absolute inset-0" pointerEvents="none">
-        <View className="absolute bottom-0 left-0 right-0 h-[60%] bg-navy/30" />
-        <View className="absolute bottom-0 left-0 right-0 h-[40%] bg-felt/20" />
-        <View className="absolute bottom-0 left-0 right-0 h-[20%] bg-teal/10" />
-      </View>
-      <View className="absolute inset-0 overflow-hidden" pointerEvents="none">
-        <FloatingDecorCard symbol="♠" x="8%" y="15%" rotation={15} delay={0} />
-        <FloatingDecorCard symbol="♥" x="78%" y="10%" rotation={-12} delay={400} />
-        <FloatingDecorCard symbol="♣" x="5%" y="72%" rotation={8} delay={800} />
-        <FloatingDecorCard symbol="♦" x="82%" y="68%" rotation={-20} delay={200} />
-      </View>
-      <SafeAreaView className="flex-1 px-7 pt-4 pb-3.5">
-        <View className="flex-row justify-between items-center">
+    <View className="flex-1 bg-black">
+      <SafeAreaView className="flex-1 px-5 pt-3">
+        <View className="flex-row items-center gap-3 mb-6">
+          <Pressable onPress={onBack} className="py-2 px-3 rounded-lg bg-gold/10 border border-gold/20">
+            <Text className="text-gold text-sm font-black">← BACK</Text>
+          </Pressable>
           <View>
-            <Text className="text-aqua text-[10px] tracking-widest font-black">
-              WELCOME BACK, PLAYER
-            </Text>
-            <Text className="text-cloud text-2xl font-black tracking-wider mt-0.5">
-              GET WAY <Text className="text-gold">CARDS</Text>
-            </Text>
-          </View>
-          <HamburgerMenu items={menuItems} />
-        </View>
-        <View className="flex-1 justify-center">
-          <View className="mb-5">
-            <Text className="text-muted text-[10px] tracking-widest font-black">
-              CHOOSE YOUR TABLE
-            </Text>
-            <Text className="text-cloud text-[22px] font-black mt-1">
-              HOW DO YOU WANT TO PLAY?
-            </Text>
-            <Text className="text-aqua text-[10px] tracking-wider font-extrabold mt-2">
-              {notice}
-            </Text>
-          </View>
-          <View className="flex-row gap-3 mb-3">
-            <AnimatedPressable
-              onPress={() => setShowPlayerSelect(true)}
-              className="flex-1 min-h-[142px] rounded-2xl p-5 border border-aqua/30 bg-teal/80"
-              style={{
-                shadowColor: "#6FE0D0",
-                shadowOffset: { width: 0, height: 4 },
-                shadowOpacity: 0.15,
-                shadowRadius: 12,
-                elevation: 6,
-              }}
-            >
-              <View className="w-[52px] h-[70px] rounded-lg bg-white/20 items-center justify-center mb-3">
-                <Text className="text-gold text-[38px]">♠</Text>
-              </View>
-              <Text className="text-muted text-[9px] tracking-widest font-black">
-                SOLO MATCH
-              </Text>
-              <Text className="text-cloud text-[17px] font-black mt-1">
-                PLAY VS CPU
-              </Text>
-              <Text className="text-white/60 text-[11px] mt-1.5 max-w-[190px]">
-                Challenge the table with adaptive AI opponents.
-              </Text>
-              <Text className="text-gold text-2xl absolute right-5 top-0 bottom-0 justify-center">
-                →
-              </Text>
-            </AnimatedPressable>
-            <AnimatedPressable
-              onPress={onFriends}
-              className="flex-1 min-h-[142px] rounded-2xl p-5 border border-white/20 bg-white/[0.06]"
-              style={{
-                shadowColor: "#000",
-                shadowOffset: { width: 0, height: 4 },
-                shadowOpacity: 0.2,
-                shadowRadius: 12,
-                elevation: 6,
-              }}
-            >
-              <View className="w-[52px] h-[70px] rounded-lg bg-white/20 items-center justify-center mb-3">
-                <Text className="text-gold text-[38px]">♣</Text>
-              </View>
-              <Text className="text-muted text-[9px] tracking-widest font-black">
-                LOCAL TABLE
-              </Text>
-              <Text className="text-cloud text-[17px] font-black mt-1">
-                PLAY WITH FRIENDS
-              </Text>
-              <Text className="text-white/60 text-[11px] mt-1.5 max-w-[190px]">
-                Create a room and deal in with your crew.
-              </Text>
-              <Text className="text-gold text-2xl absolute right-5 top-0 bottom-0 justify-center">
-                →
-              </Text>
-            </AnimatedPressable>
-          </View>
-          <View className="flex-row gap-3">
-            <AnimatedPressable
-              onPress={() =>
-                setNotice("SETTINGS: SOUND, HAPTICS AND MOTION ARE READY TO TUNE.")
-              }
-              className="flex-1 min-h-[72px] rounded-xl px-5 border border-white/10 bg-white/[0.04] flex-row items-center gap-3"
-            >
-              <Text className="text-gold text-xl">⚙</Text>
-              <View>
-                <Text className="text-muted text-[9px] tracking-widest font-black">
-                  PREFERENCES
-                </Text>
-                <Text className="text-cloud text-sm font-black mt-0.5">
-                  SETTINGS
-                </Text>
-              </View>
-            </AnimatedPressable>
-            <AnimatedPressable
-              onPress={() =>
-                setNotice("YOUR STATS WILL APPEAR HERE AFTER YOUR FIRST MATCH.")
-              }
-              className="flex-1 min-h-[72px] rounded-xl px-5 border border-white/10 bg-white/[0.04] flex-row items-center gap-3"
-            >
-              <Text className="text-gold text-xl">◆</Text>
-              <View>
-                <Text className="text-muted text-[9px] tracking-widest font-black">
-                  YOUR RECORD
-                </Text>
-                <Text className="text-cloud text-sm font-black mt-0.5">
-                  STATISTICS
-                </Text>
-              </View>
-            </AnimatedPressable>
+            <Text className="text-white/40 text-[7px] tracking-[0.3em] font-black">RULES & GUIDE</Text>
+            <Text className="text-white text-xl font-black">HOW TO PLAY</Text>
           </View>
         </View>
 
-        {/* Player Select Modal */}
-        {showPlayerSelect && (
-          <View className="absolute inset-0 bg-black/70 items-center justify-center z-50">
-            <View className="bg-ink border border-aqua/30 rounded-2xl p-6 w-[340px]">
-              <Text className="text-cloud text-lg font-black text-center">
-                SELECT TABLE SIZE
-              </Text>
-              <Text className="text-muted text-[10px] tracking-widest text-center mt-1">
-                CHOOSE HOW MANY PLAYERS
-              </Text>
-              <View className="flex-row gap-2.5 mt-5 justify-center">
-                {[3, 4, 5, 6].map((count) => (
-                  <AnimatedPressable
-                    key={count}
-                    onPress={() => {
-                      setShowPlayerSelect(false);
-                      onPlay(count);
-                    }}
-                    className="w-[68px] h-[68px] border border-aqua/30 rounded-xl bg-teal/60 items-center justify-center"
-                  >
-                    <Text className="text-cloud text-xl font-black">{count}</Text>
-                    <Text className="text-muted text-[7px] font-black">PLAYERS</Text>
-                  </AnimatedPressable>
-                ))}
-              </View>
-              <AnimatedPressable
-                onPress={() => setShowPlayerSelect(false)}
-                className="mt-4 py-2"
+        <ScrollView showsVerticalScrollIndicator={false} className="flex-1">
+          {/* Hero */}
+          <View className="rounded-2xl p-5 mb-5 border border-gold/10" style={{ backgroundColor: "#0C0C0C" }}>
+            <Text className="text-gold text-2xl font-black">GET AWAY THULLA</Text>
+            <Text className="text-white/30 text-[10px] mt-1 leading-4">
+              A trick-taking card game where the goal is to empty your hand. The last player holding cards is the LOSER!
+            </Text>
+          </View>
+
+          {/* Rules */}
+          <View className="gap-3 mb-6">
+            {rules.map((rule, i) => (
+              <View
+                key={i}
+                className="flex-row gap-4 p-4 border border-white/[0.04] rounded-2xl"
+                style={{ backgroundColor: "#0C0C0C" }}
               >
-                <Text className="text-muted text-[10px] font-black text-center tracking-wider">
-                  CANCEL
-                </Text>
-              </AnimatedPressable>
-            </View>
+                <View
+                  className="rounded-xl items-center justify-center"
+                  style={{
+                    width: 44,
+                    height: 44,
+                    backgroundColor: "rgba(245,201,106,0.04)",
+                    borderWidth: 1,
+                    borderColor: "rgba(245,201,106,0.08)",
+                  }}
+                >
+                  <Text className="text-xl">{rule.icon}</Text>
+                </View>
+                <View className="flex-1">
+                  <Text className="text-gold text-[10px] tracking-[0.25em] font-black">{rule.title}</Text>
+                  <Text className="text-white/40 text-[11px] mt-1 leading-4">{rule.desc}</Text>
+                </View>
+                <Text className="text-white/10 text-2xl font-black self-start">{i + 1}</Text>
+              </View>
+            ))}
           </View>
-        )}
 
-        <Text className="text-white/20 text-[8px] tracking-widest font-extrabold text-center">
-          BHABHI THULLA · CLASSIC EDITION · BUILD 01
-        </Text>
+          {/* Tips */}
+          <Text className="text-white/15 text-[8px] tracking-[0.3em] font-black mb-3">PRO TIPS</Text>
+          <View className="bg-gold/5 border border-gold/10 rounded-2xl p-5 mb-6">
+            <Text className="text-gold text-[11px] font-black mb-2">💡 STRATEGY</Text>
+            <Text className="text-white/30 text-[10px] leading-5">
+              • Count cards as they're played to know what's left{"\n"}
+              • Lead with high cards early to force Thullas{"\n"}
+              • Hold wild cards for critical moments{"\n"}
+              • Watch which suits are exhausted — those are safe exits
+            </Text>
+          </View>
+        </ScrollView>
+      </SafeAreaView>
+    </View>
+  );
+}
+
+/* ================================================================
+   BETTING PAGE
+   ================================================================ */
+
+function BettingPage({
+  coinBalance,
+  currentBet,
+  setCurrentBet,
+  onConfirm,
+  onBack,
+}: {
+  coinBalance: number;
+  currentBet: number;
+  setCurrentBet: (v: number) => void;
+  onConfirm: () => void;
+  onBack: () => void;
+}) {
+  const presets = [1000, 2500, 5000, 10000];
+  const canBet = coinBalance >= currentBet && currentBet >= MIN_BET;
+
+  const adjustBet = (delta: number) => {
+    const next = Math.max(MIN_BET, Math.min(MAX_BET, Math.min(coinBalance, currentBet + delta)));
+    setCurrentBet(next);
+  };
+
+  return (
+    <View className="flex-1 bg-black">
+      <SafeAreaView className="flex-1 px-6 pt-3">
+        <View className="flex-row items-center gap-3 mb-8">
+          <Pressable onPress={onBack} className="py-2 px-3 rounded-lg bg-gold/10 border border-gold/20">
+            <Text className="text-gold text-sm font-black">← BACK</Text>
+          </Pressable>
+          <View>
+            <Text className="text-white/40 text-[7px] tracking-[0.3em] font-black">PLACE YOUR BET</Text>
+            <Text className="text-white text-xl font-black">BETTING</Text>
+          </View>
+        </View>
+
+        {/* Balance */}
+        <View className="items-center mb-8">
+          <Text className="text-white/25 text-[8px] tracking-[0.3em] font-black">YOUR BALANCE</Text>
+          <Text className="text-gold text-4xl font-black mt-2">{coinBalance.toLocaleString()}</Text>
+          <Text className="text-gold/30 text-[9px] tracking-wider mt-1">COINS</Text>
+        </View>
+
+        {/* Bet Amount */}
+        <View className="items-center mb-8">
+          <Text className="text-white/25 text-[8px] tracking-[0.3em] font-black mb-4">BET AMOUNT</Text>
+          <View className="flex-row items-center gap-4">
+            <Pressable
+              onPress={() => adjustBet(-500)}
+              className="w-14 h-14 rounded-2xl bg-white/[0.04] border border-white/[0.08] items-center justify-center"
+            >
+              <Text className="text-white text-2xl font-black">−</Text>
+            </Pressable>
+            <View className="items-center bg-gold/5 border border-gold/15 rounded-2xl px-8 py-4">
+              <Text className="text-gold text-4xl font-black">{currentBet.toLocaleString()}</Text>
+              <Text className="text-gold/30 text-[8px] tracking-wider mt-1">COINS</Text>
+            </View>
+            <Pressable
+              onPress={() => adjustBet(500)}
+              className="w-14 h-14 rounded-2xl bg-white/[0.04] border border-white/[0.08] items-center justify-center"
+            >
+              <Text className="text-white text-2xl font-black">+</Text>
+            </Pressable>
+          </View>
+        </View>
+
+        {/* Presets */}
+        <View className="flex-row gap-2.5 mb-8 justify-center">
+          {presets.map((p) => (
+            <Pressable
+              key={p}
+              onPress={() => setCurrentBet(Math.min(p, coinBalance))}
+              className={`rounded-xl px-5 py-3 border ${
+                currentBet === p ? "bg-gold/15 border-gold/30" : "bg-white/[0.03] border-white/[0.06]"
+              }`}
+            >
+              <Text className={`text-sm font-black ${currentBet === p ? "text-gold" : "text-white/40"}`}>
+                {p >= 1000 ? `${p / 1000}K` : p}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+
+        {/* Info */}
+        <View className="bg-white/[0.02] border border-white/[0.04] rounded-2xl p-4 mb-8">
+          <View className="flex-row items-center gap-2 mb-2">
+            <Text className="text-gold text-sm">⚠️</Text>
+            <Text className="text-white/40 text-[9px] tracking-[0.2em] font-black">BETTING RULES</Text>
+          </View>
+          <Text className="text-white/20 text-[10px] leading-5">
+            • Minimum bet: {MIN_BET.toLocaleString()} coins{"\n"}
+            • Winner takes the full pot ({currentBet.toLocaleString()} coins){"\n"}
+            • Leaving early costs 2x the bet ({(currentBet * 2).toLocaleString()} coins)
+          </Text>
+        </View>
+
+        {/* Confirm Button */}
+        <Pressable
+          onPress={onConfirm}
+          disabled={!canBet}
+          className={`rounded-2xl py-4 items-center border ${
+            canBet
+              ? "bg-gold border-gold/40"
+              : "bg-white/[0.04] border-white/[0.06]"
+          }`}
+          style={{
+            shadowColor: canBet ? "#F5C96A" : "transparent",
+            shadowOffset: { width: 0, height: 6 },
+            shadowOpacity: canBet ? 0.2 : 0,
+            shadowRadius: 16,
+          }}
+        >
+          <Text className={`text-sm font-black tracking-[0.2em] ${canBet ? "text-ink" : "text-white/20"}`}>
+            {canBet ? `PLAY · BET ${currentBet.toLocaleString()} COINS` : "NOT ENOUGH COINS"}
+          </Text>
+        </Pressable>
       </SafeAreaView>
     </View>
   );
@@ -1060,27 +2740,33 @@ function LobbyShell({
   );
 }
 
-/* ================================================================
-   BHABHI THULLA GAME VIEW – Full Table Layout
-   ================================================================ */
+    /* ================================================================
+    GAME VIEW – Full Table Layout
+    ================================================================ */
 
-function BhabhiGameView({
+function GameView({
   cardWidth,
   playerCount,
+  currentBet,
+  coinBalance,
   onLeave,
+  onWin,
   onStatsUpdate,
 }: {
   cardWidth: number;
   playerCount: number;
+  currentBet: number;
+  coinBalance: number;
   onLeave: () => void;
+  onWin: (amount: number) => void;
   onStatsUpdate: (stats: FeedbackStats) => void;
 }) {
   const { width, height } = useWindowDimensions();
-  const [gameState, setGameState] = useState<BhabhiState>(() =>
+  const [gameState, setGameState] = useState<GameState>(() =>
     createGame(playerCount),
   );
   const [showLeaveConfirm, setShowLeaveConfirm] = useState(false);
-  const [banner, setBanner] = useState<{ text: string; type: "thulla" | "safe" | "bhabhi" | "info" } | null>(null);
+  const [banner, setBanner] = useState<{ text: string; type: "thulla" | "safe" | "loser" | "info" } | null>(null);
   const bannerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const cpuTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastMessageRef = useRef<string>("");
@@ -1097,7 +2783,7 @@ function BhabhiGameView({
     playCardPlay,
     playTrickWon,
     playSafe,
-    playBhabhi,
+    playLoser,
     playTurnChange,
     playGameOver,
     playButtonPress,
@@ -1125,7 +2811,7 @@ function BhabhiGameView({
 
   /* ── Banner display ──────────────────────────────────── */
   const showBanner = useCallback(
-    (text: string, type: "thulla" | "safe" | "bhabhi" | "info") => {
+    (text: string, type: "thulla" | "safe" | "loser" | "info") => {
       if (bannerTimerRef.current) clearTimeout(bannerTimerRef.current);
       setBanner({ text, type });
       bannerTimerRef.current = setTimeout(() => setBanner(null), 2200);
@@ -1133,20 +2819,23 @@ function BhabhiGameView({
     [],
   );
 
-  /* ── Check for safe/bhabhi after state changes ───────── */
+  /* ── Check for safe/loser after state changes ───────── */
   useEffect(() => {
     if (gameState.phase === "finished" && gameState.loserId) {
       const loser = gameState.players.find((p) => p.id === gameState.loserId);
       const humanIsLoser = gameState.loserId === "player-0";
       setTimeout(() => {
-        showBanner(`${loser?.name ?? "Player"} is the BHABHI!`, "bhabhi");
-        playBhabhi();
+        showBanner(`${loser?.name ?? "Player"} is the LOSER!`, "loser");
+        playLoser();
+        if (!humanIsLoser) {
+          onWin(currentBet);
+        }
       }, 600);
       playGameOver();
       incrementStats({
         gamesPlayed: 1,
         gamesWon: humanIsLoser ? 0 : 1,
-        bhabhiCount: humanIsLoser ? 1 : 0,
+        loserCount: humanIsLoser ? 1 : 0,
       }).then((updated) => onStatsUpdate(updated));
     }
     const humanPlayer = gameState.players.find((p) => p.id === "player-0");
@@ -1302,19 +2991,25 @@ function BhabhiGameView({
         <View className="flex-row items-center justify-between px-4 py-1.5 bg-woodDark/90 border-b border-wood/50">
           <Pressable
             onPress={() => setShowLeaveConfirm(true)}
-            className="py-1.5"
+            className="py-2 px-3 rounded-lg bg-coral/15 border border-coral/30"
           >
-            <Text className="text-coral text-[11px] font-black">← LEAVE</Text>
+            <Text className="text-coral text-sm font-black">← LEAVE</Text>
           </Pressable>
           <View className="items-center">
             <Text className="text-gold text-[9px] tracking-widest font-extrabold">
-              BHABHI THULLA · {playerCount} PLAYERS
+              GET AWAY THULLA · {playerCount} PLAYERS
             </Text>
             <Text className="text-cloud text-sm font-black" numberOfLines={1} ellipsizeMode="tail">
               {gameState.message}
             </Text>
           </View>
           <View className="flex-row items-center gap-2">
+            <View className="items-center bg-gold/10 rounded-lg px-2.5 py-0.5 border border-gold/20">
+              <Text className="text-gold text-[8px] font-black">BET</Text>
+              <Text className="text-gold text-sm font-black">
+                {currentBet.toLocaleString()}
+              </Text>
+            </View>
             <View className="items-center bg-wood/40 rounded-lg px-2.5 py-0.5 border border-woodLight/30">
               <Text className="text-gold text-sm font-black">
                 {gameState.discardCount}
@@ -1331,9 +3026,9 @@ function BhabhiGameView({
         <View className="flex-1 relative overflow-hidden">
           {/* Wood border frame */}
           <View
-            className="absolute inset-2 rounded-[28px]"
+            className="absolute inset-1 rounded-[28px]"
             style={{
-              borderWidth: 6,
+              borderWidth: 5,
               borderColor: "#5C3A1E",
               backgroundColor: "transparent",
               shadowColor: "#3D2512",
@@ -1346,7 +3041,7 @@ function BhabhiGameView({
 
           {/* Inner felt table */}
           <View
-            className="absolute inset-4 rounded-[22px] overflow-hidden"
+            className="absolute inset-2 rounded-[22px] overflow-hidden"
             style={{
               backgroundColor: "#0E2B1A",
               shadowColor: "#000",
@@ -1398,50 +3093,72 @@ function BhabhiGameView({
               />
             ))}
 
-            {/* ── Center Trick Zone ─────────────────── */}
-            <View
-              className="absolute items-center justify-center"
-              style={{
-                left: width * 0.5 - 140,
-                top: height * 0.33 - 50,
-                width: 280,
-                height: 100,
-              }}
-            >
-              {/* Cross-shaped trick slots */}
-              <View className="flex-row gap-1 items-center justify-center flex-wrap">
-                {gameState.trick.map((play, i) => (
-                  <Animated.View
-                    key={`${play.playerId}-${play.card.id}`}
-                    entering={FadeIn.duration(300)}
-                    layout={Layout.springify()}
-                  >
-                    <MiniCard
-                      card={play.card}
-                      width={smallCardWidth}
-                      playerName={
-                        gameState.players.find((p) => p.id === play.playerId)
-                          ?.name ?? "?"
-                      }
-                    />
-                  </Animated.View>
-                ))}
-                {gameState.trick.length === 0 && (
-                  <View className="items-center">
-                    <View className="w-12 h-[2px] bg-aqua/20 rounded-full" />
-                    <Text className="text-aqua/30 text-[8px] mt-1 font-black tracking-wider">
-                      TRICK
-                    </Text>
-                    <View className="w-12 h-[2px] bg-aqua/20 rounded-full mt-1" />
-                  </View>
-                )}
-              </View>
+            {/* ── Per-Player Trick Cards ──────────────── */}
+            {gameState.trick.map((play) => {
+              const playerPos = playerPositions.find((p) => p.id === play.playerId);
+              if (!playerPos) return null;
+              const isHuman = play.playerId === "player-0";
+              const cardX = isHuman
+                ? playerPos.x - smallCardWidth / 2
+                : playerPos.x - smallCardWidth / 2;
+              const cardY = isHuman
+                ? playerPos.y - height * 0.36
+                : playerPos.y + height * 0.14;
+              return (
+                <Animated.View
+                  key={`${play.playerId}-${play.card.id}`}
+                  entering={FadeIn.duration(300)}
+                  layout={Layout.springify()}
+                  className="absolute"
+                  style={{
+                    left: cardX,
+                    top: cardY,
+                  }}
+                >
+                  <MiniCard
+                    card={play.card}
+                    width={smallCardWidth}
+                    playerName={
+                      gameState.players.find((p) => p.id === play.playerId)
+                        ?.name ?? "?"
+                    }
+                  />
+                </Animated.View>
+              );
+            })}
 
-              {/* Lead Suit Indicator */}
-              {ledSuit && (
+            {/* ── Center Trick Zone (empty state) ────── */}
+            {gameState.trick.length === 0 && (
+              <View
+                className="absolute items-center justify-center"
+                style={{
+                  left: width * 0.5 - 60,
+                  top: height * 0.33 - 30,
+                  width: 120,
+                  height: 60,
+                }}
+              >
+                <View className="w-12 h-[2px] bg-aqua/20 rounded-full" />
+                <Text className="text-aqua/30 text-[8px] mt-1 font-black tracking-wider">
+                  TRICK
+                </Text>
+                <View className="w-12 h-[2px] bg-aqua/20 rounded-full mt-1" />
+              </View>
+            )}
+
+            {/* Lead Suit Indicator */}
+            {ledSuit && gameState.trick.length > 0 && (() => {
+              const leadPlay = gameState.trick[0];
+              const leadPos = playerPositions.find((p) => p.id === leadPlay.playerId);
+              const indicatorX = leadPos ? leadPos.x - 20 : width * 0.5 - 20;
+              const indicatorY = leadPos
+                ? (leadPos.isHuman ? leadPos.y - height * 0.36 - 45 : leadPos.y + height * 0.14 + smallCardWidth * 1.35 + 12)
+                : height * 0.25;
+              return (
                 <Animated.View
                   entering={FadeIn.duration(200)}
-                  className="absolute -top-8 items-center"
+                  className="absolute items-center"
+                  style={{ left: indicatorX, top: indicatorY }}
                 >
                   <View className="bg-ink/70 rounded-full px-3 py-1 border border-aqua/30">
                     <Text
@@ -1453,11 +3170,11 @@ function BhabhiGameView({
                     </Text>
                   </View>
                   <Text className="text-aqua/60 text-[7px] font-black mt-0.5 tracking-wider">
-                    LEAD SUIT
+                    LEAD
                   </Text>
                 </Animated.View>
-              )}
-            </View>
+              );
+            })()}
 
             {/* ── Discard Pile (right side) ─────────── */}
             <View
@@ -1543,8 +3260,8 @@ function BhabhiGameView({
             <ScrollView
               horizontal
               contentContainerStyle={{
-                paddingHorizontal: Math.max(10, (width - humanHand.length * (cardWidth + 2)) / 2),
-                paddingVertical: 4,
+                paddingHorizontal: Math.max(8, (width - humanHand.length * (cardWidth + 1)) / 2),
+                paddingVertical: 2,
                 alignItems: "flex-end",
                 gap: 2,
               }}
@@ -1575,9 +3292,18 @@ function BhabhiGameView({
             <View className="items-center py-3">
               <Text className="text-gold text-lg font-black">
                 {gameState.loserId
-                  ? `${gameState.players.find((p) => p.id === gameState.loserId)?.name} IS THE BHABHI!`
+                  ? gameState.loserId === "player-0"
+                    ? "YOU ARE THE LOSER!"
+                    : `${gameState.players.find((p) => p.id === gameState.loserId)?.name} IS THE LOSER!`
                   : "ROUND OVER"}
               </Text>
+              {gameState.loserId && gameState.loserId !== "player-0" && (
+                <View className="bg-gold/10 border border-gold/20 rounded-lg px-4 py-1.5 mt-2">
+                  <Text className="text-gold text-xs font-black">
+                    +{currentBet.toLocaleString()} COINS WON!
+                  </Text>
+                </View>
+              )}
               <AnimatedPressable
                 onPress={startNewGame}
                 className="bg-gold rounded-xl px-8 py-3 mt-3"
@@ -1604,7 +3330,7 @@ function BhabhiGameView({
                 ? "bg-coral/90 border-coral"
                 : banner.type === "safe"
                   ? "bg-teal/90 border-aqua"
-                  : banner.type === "bhabhi"
+                  : banner.type === "loser"
                     ? "bg-maroon/90 border-coral"
                     : "bg-ink/90 border-aqua/50"
             }`}
@@ -1622,7 +3348,7 @@ function BhabhiGameView({
                   ? "text-cloud"
                   : banner.type === "safe"
                     ? "text-gold"
-                    : banner.type === "bhabhi"
+                    : banner.type === "loser"
                       ? "text-coral"
                       : "text-cloud"
               }`}
@@ -1639,8 +3365,8 @@ function BhabhiGameView({
       <ConfirmDialog
         visible={showLeaveConfirm}
         title="LEAVE TABLE?"
-        message="Are you sure you want to leave? Your current game progress will be lost."
-        confirmLabel="LEAVE TABLE"
+        message={`You will lose ${(currentBet * 2).toLocaleString()} coins as a penalty for leaving early. Your current bet of ${currentBet.toLocaleString()} coins will also be forfeited.`}
+        confirmLabel={`LEAVE · PAY ${(currentBet * 2).toLocaleString()}`}
         cancelLabel="STAY"
         destructive
         onConfirm={() => {
@@ -1883,7 +3609,7 @@ function GameCardView({
 
   return (
     <View
-      className={`mx-0.5 p-2 justify-between rounded-xl ${
+      className={`mx-0.5 p-1.5 justify-between rounded-xl ${
         dimmed ? "opacity-50" : ""
       }`}
       style={{
@@ -1928,7 +3654,7 @@ function GameCardView({
 
       {/* Rank + Suit top-left */}
       <Text
-        className={`font-black text-sm z-10 ${isRed ? "text-coral" : "text-ink"}`}
+        className={`font-black text-[11px] z-10 ${isRed ? "text-coral" : "text-ink"}`}
       >
         {card.rank}
         {symbol}
@@ -1939,21 +3665,21 @@ function GameCardView({
         className={`absolute self-center font-black opacity-[0.05] z-0 ${
           isRed ? "text-coral" : "text-muted"
         }`}
-        style={{ fontSize: 44, top: "32%" }}
+        style={{ fontSize: 32, top: "32%" }}
       >
         {symbol}
       </Text>
 
       {/* Center suit icon */}
       <Text
-        className={`text-[28px] self-center z-10 ${isRed ? "text-coral" : "text-muted"}`}
+        className={`text-[22px] self-center z-10 ${isRed ? "text-coral" : "text-muted"}`}
       >
         {symbol}
       </Text>
 
       {/* Inverted Rank + Suit bottom-right */}
       <Text
-        className={`font-black text-sm self-end z-10 ${isRed ? "text-coral" : "text-ink"}`}
+        className={`font-black text-[11px] self-end z-10 ${isRed ? "text-coral" : "text-ink"}`}
         style={{ transform: [{ rotate: "180deg" }] }}
       >
         {card.rank}

@@ -6,7 +6,7 @@ type SoundId =
   | "cardPlay"
   | "trickWon"
   | "safe"
-  | "bhabhi"
+  | "loser"
   | "turnChange"
   | "gameOver"
   | "buttonPress";

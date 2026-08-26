@@ -9,7 +9,7 @@ export interface UseSoundReturn {
   playCardPlay: () => Promise<void>;
   playTrickWon: () => Promise<void>;
   playSafe: () => Promise<void>;
-  playBhabhi: () => Promise<void>;
+  playLoser: () => Promise<void>;
   playTurnChange: () => Promise<void>;
   playGameOver: () => Promise<void>;
   playButtonPress: () => Promise<void>;
@@ -48,8 +48,8 @@ export function useSound(): UseSoundReturn {
     await soundManager.play("safe");
   }, []);
 
-  const playBhabhi = useCallback(async () => {
-    await soundManager.play("bhabhi");
+  const playLoser = useCallback(async () => {
+    await soundManager.play("loser");
   }, []);
 
   const playTurnChange = useCallback(async () => {
@@ -72,7 +72,7 @@ export function useSound(): UseSoundReturn {
     playCardPlay,
     playTrickWon,
     playSafe,
-    playBhabhi,
+    playLoser,
     playTurnChange,
     playGameOver,
     playButtonPress,

@@ -172,7 +172,7 @@ public class GameManager : MonoBehaviour
 
         if (players.Count != 4)
         {
-            Debug.LogError("Bhabhi Thulla requires exactly 4 players.");
+            Debug.LogError("Get Away Thulla requires exactly 4 players.");
             actionLocked = false;
             yield break;
         }
@@ -499,17 +499,17 @@ public class GameManager : MonoBehaviour
             return false;
         }
 
-        Player bhabhi = turnManager.GetLastActivePlayer();
-        if (bhabhi != null && !bhabhi.IsFinished)
+        Player loser = turnManager.GetLastActivePlayer();
+        if (loser != null && !loser.IsFinished)
         {
-            bhabhi.ApplyRoundScore(0);
+            loser.ApplyRoundScore(0);
         }
 
-        EndGame(bhabhi);
+        EndGame(loser);
         return true;
     }
 
-    private void EndGame(Player bhabhi)
+    private void EndGame(Player loser)
     {
         state = GameState.GameOver;
         GameEvents.RaiseGameStateChanged(state);
@@ -521,7 +521,7 @@ public class GameManager : MonoBehaviour
         if (uiManager != null)
         {
             uiManager.ShowGameOver();
-            uiManager.SetStatusText(bhabhi != null ? $"Bhabhi: {bhabhi.PlayerName}" : "Game Over");
+            uiManager.SetStatusText(loser != null ? $"Loser: {loser.PlayerName}" : "Game Over");
             uiManager.SetRankingText(scoreManager != null ? scoreManager.BuildRankingText() : string.Empty);
             uiManager.SetScoreText(GetScoreSummary());
         }

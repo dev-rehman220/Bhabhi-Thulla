@@ -9,7 +9,7 @@ const STORAGE_KEY = "@get-way-cards/stats";
 export interface GameStats {
   gamesPlayed: number;
   gamesWon: number;
-  bhabhiCount: number;
+  loserCount: number;
   thullaCount: number;
   safeCount: number;
   longestStreak: number;
@@ -20,7 +20,7 @@ export interface GameStats {
 const DEFAULT_STATS: GameStats = {
   gamesPlayed: 0,
   gamesWon: 0,
-  bhabhiCount: 0,
+  loserCount: 0,
   thullaCount: 0,
   safeCount: 0,
   longestStreak: 0,

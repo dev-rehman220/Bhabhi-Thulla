@@ -9,6 +9,6 @@ public static class MoveValidator
             return false;
         }
 
-        return BhabhiRulesEngine.IsValidMove(selectedCard, topCard);
+        return GameRulesEngine.IsValidMove(selectedCard, topCard);
     }
 }

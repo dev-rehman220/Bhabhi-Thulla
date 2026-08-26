@@ -1,6 +1,6 @@
-# Bhabhi Thulla (Unity 2D)
+# Get Away Thulla (Unity 2D)
 
-This workspace contains the core C# scripts and folder structure for a mobile-friendly Unity 2D implementation of Bhabhi Thulla.
+This workspace contains the core C# scripts and folder structure for a mobile-friendly Unity 2D implementation of Get Away Thulla.
 
 ## Included
 

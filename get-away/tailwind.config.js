@@ -64,6 +64,27 @@ module.exports = {
         faceBlack: ["#F8FAFC", "#F0F4F8"],
         back: ["#1B6672", "#155A66"],
       },
+      /* ── Menu & Onboarding Design Tokens ────────────────── */
+      glassBg: {
+        light: "rgba(255,255,255,0.06)",
+        medium: "rgba(255,255,255,0.10)",
+        heavy: "rgba(255,255,255,0.15)",
+      },
+      menuCard: {
+        primary: "rgba(27,102,114,0.85)",
+        secondary: "rgba(13,35,64,0.70)",
+        subtle: "rgba(255,255,255,0.05)",
+      },
+      glowColor: {
+        aqua: "rgba(111,224,208,0.25)",
+        gold: "rgba(245,201,106,0.20)",
+        teal: "rgba(27,102,114,0.30)",
+      },
+      onboardingCard: {
+        bg: "rgba(27,102,114,0.60)",
+        border: "rgba(111,224,208,0.35)",
+        inner: "rgba(255,255,255,0.06)",
+      },
     },
   },
   plugins: [],

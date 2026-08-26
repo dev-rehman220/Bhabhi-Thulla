@@ -1,6 +1,6 @@
 using UnityEngine;
 
-[CreateAssetMenu(menuName = "Bhabhi Thulla/Card Data", fileName = "CardData")]
+[CreateAssetMenu(menuName = "Get Away Thulla/Card Data", fileName = "CardData")]
 public class CardData : ScriptableObject
 {
     public Suit suit;

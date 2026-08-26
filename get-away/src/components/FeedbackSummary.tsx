@@ -150,7 +150,7 @@ export function FeedbackSummary({
             <View className="flex-row flex-wrap gap-2.5 mb-5">
               <StatCard icon="🎮" label="GAMES PLAYED" value={stats.gamesPlayed} />
               <StatCard icon="🏆" label="GAMES WON" value={stats.gamesWon} />
-              <StatCard icon="💀" label="BHABHI LOSSES" value={stats.bhabhiCount} />
+              <StatCard icon="💀" label="LOSSES" value={stats.loserCount} />
               <StatCard icon="⚠️" label="THULLAS HIT" value={stats.thullaCount} />
               <StatCard icon="🛡️" label="TIMES SAFE" value={stats.safeCount} />
               <StatCard icon="🔥" label="BEST STREAK" value={stats.longestStreak} />
