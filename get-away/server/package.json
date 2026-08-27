@@ -1,15 +1,15 @@
 {
-  "name": "get-away-thulla-server",
+  "name": "thulla-server",
   "version": "1.0.0",
-  "description": "Get Away Thulla multiplayer server",
+  "private": true,
+  "description": "Get Away Thulla multiplayer server (Socket.IO + game engine)",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js",
-    "dev": "node server.js"
+    "start": "node server.js"
   },
   "dependencies": {
     "cors": "^2.8.5",
-    "express": "^4.21.0",
-    "socket.io": "^4.8.3"
+    "express": "^4.21.2",
+    "socket.io": "^4.8.1"
   }
 }

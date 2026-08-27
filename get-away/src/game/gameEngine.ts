@@ -118,6 +118,40 @@ export function createGame(playerCount: number): GameState {
   };
 }
 
+/** Builds a game where every seat is a real (remote) human. Used by the network server. */
+export function createNetworkGame(playerCount: number): GameState {
+  const count = Math.min(6, Math.max(3, playerCount));
+  const deck = shuffle(createDeck());
+  const players = Array.from({ length: count }, (_, index) => ({
+    id: `player-${index}`,
+    name: `PLAYER ${index + 1}`,
+    hand: [] as GameCard[],
+    safe: false,
+    isCpu: false,
+  }));
+  deck.forEach((card, index) => players[index % count].hand.push(card));
+  const aceHolder = players.find((player) => player.hand.some((card) => card.id === 'A-spades'))!;
+  return {
+    players,
+    activePlayerIds: players.map((player) => player.id),
+    currentPlayerId: aceHolder.id,
+    trick: [],
+    discardCount: 0,
+    message: `${aceHolder.name} holds A\u2660 and opens the game.`,
+    phase: 'playing',
+  };
+}
+
+/** Marks a seat as CPU-controlled (used when a remote player disconnects mid-match). */
+export function setPlayerCpu(state: GameState, playerId: string, isCpu: boolean): GameState {
+  return {
+    ...state,
+    players: state.players.map((player) =>
+      player.id === playerId ? { ...player, isCpu } : player,
+    ),
+  };
+}
+
 export function playCard(state: GameState, playerId: string, cardId: string): { state: GameState; error?: string } {
   if (state.phase === 'finished') return { state, error: 'This round is over.' };
   if (state.currentPlayerId !== playerId) return { state, error: 'Wait for your turn.' };

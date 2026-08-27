@@ -122,8 +122,8 @@ function cardKey(c: GameCard): string {
   return c.id;
 }
 
-function getHumanPlayer(state: GameState): GamePlayer | undefined {
-  return state.players.find((p) => p.id === "player-0");
+function getHumanPlayer(state: GameState, humanId: string): GamePlayer | undefined {
+  return state.players.find((p) => p.id === humanId);
 }
 
 function getLedSuit(state: GameState): Suit | null {
@@ -131,8 +131,8 @@ function getLedSuit(state: GameState): Suit | null {
   return state.trick[0].card.suit;
 }
 
-function getHumanPlayableIds(state: GameState): Set<string> {
-  const human = getHumanPlayer(state);
+function getHumanPlayableIds(state: GameState, humanId: string): Set<string> {
+  const human = getHumanPlayer(state, humanId);
   if (!human) return new Set();
   const ledSuit = getLedSuit(state);
   const ledCards = ledSuit
@@ -1251,11 +1251,22 @@ type RoomPlayer = {
   status: string;
 };
 
+type NetworkInfo = {
+  roomId: string;
+  playerId: string;
+  displayName: string;
+  seatIndex: number;
+  playerCount: number;
+  gameId: string;
+  gameState: GameState;
+  socket: Socket;
+};
+
 function FriendsLobby({
-  onStart,
+  onMatchStart,
   onBack,
 }: {
-  onStart: (playerCount: number) => void;
+  onMatchStart: (network: NetworkInfo) => void;
   onBack: () => void;
 }) {
   const { width } = useWindowDimensions();
@@ -1268,20 +1279,31 @@ function FriendsLobby({
   const [name] = useState("Player");
   const [error, setError] = useState("");
   const socket = useRef<Socket | null>(null);
+  const matchStartingRef = useRef(false);
   const [playerId] = useState(
     () => `player_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
   );
 
+  const hostUri = (Constants.expoConfig as any)?.hostUri as string | undefined;
   const serverUrl =
     process.env.EXPO_PUBLIC_SERVER_URL ??
-    (typeof window !== "undefined"
+    (typeof window !== "undefined" && typeof window.location?.hostname === "string"
       ? `http://${window.location.hostname}:3001`
-      : `http://${(Constants.expoConfig as any)?.hostUri?.split(":")[0] ?? "localhost"}:3001`);
+      : `http://${hostUri?.split(":")[0] ?? "localhost"}:3001`);
 
-  useEffect(() => () => { socket.current?.disconnect(); }, []);
+  useEffect(
+    () => () => {
+      if (!matchStartingRef.current) socket.current?.disconnect();
+    },
+    [],
+  );
 
   const connect = (callback: (connection: Socket) => void) => {
     setError("");
+    if (socket.current?.connected) {
+      callback(socket.current);
+      return;
+    }
     const connection = io(serverUrl, {
       transports: ["websocket"],
       reconnection: true,
@@ -1302,8 +1324,20 @@ function FriendsLobby({
     connection.on("connect_error", () => { clearTimeout(connectTimeout); setError("Connection failed. Check your network and try again."); });
     connection.on("room_updated", ({ room }) => { setRoomId(room.id); setRoomCode(room.inviteCode); setMaxPlayers(room.settings.maxPlayers); setPlayers(room.players); setView("waiting"); });
     connection.on("join_success", ({ room }) => { setRoomId(room.id); setRoomCode(room.inviteCode); setMaxPlayers(room.settings.maxPlayers); setPlayers(room.players); setView("waiting"); });
-    connection.on("match_started", ({ playerCount }) => onStart(playerCount ?? 4));
-    connection.on("error", ({ code }) => setError(code === "ROOM_FULL" ? "This room is full." : code === "INVALID_CODE" ? "Room code not found." : "Unable to join this room."));
+    connection.on("match_started", ({ roomId, playerCount, gameId, gameState, seatIndexByPlayerId }) => {
+      matchStartingRef.current = true;
+      onMatchStart({
+        roomId,
+        playerId,
+        displayName: name,
+        seatIndex: seatIndexByPlayerId?.[playerId] ?? 0,
+        playerCount: playerCount ?? 4,
+        gameId,
+        gameState,
+        socket: connection,
+      });
+    });
+    connection.on("error", ({ code, message }) => setError(code === "ROOM_FULL" ? "This room is full." : code === "MATCH_IN_PROGRESS" ? "A match is already running in this room." : code === "INVALID_CODE" ? "Room code not found." : code === "NOT_HOST" ? "Only the host can start the match." : code === "NOT_ENOUGH_PLAYERS" ? "Need at least 2 players to start." : code === "GAME_NOT_RUNNING" ? "No match is running here." : code === "NOT_IN_ROOM" ? "You are not in this room." : code === "INVALID_MOVE" ? (message || "That move is not allowed.") : "Unable to join this room."));
   };
 
   const createRoom = () => {
@@ -1391,6 +1425,7 @@ function FriendsLobby({
           ))}
         </View>
         {goldBtn(createRoom, "CREATE ROOM →")}
+        {error ? <Text style={{ color: T.coral, fontSize: 9, marginTop: 8 }}>{error}</Text> : null}
       </>
     ));
 
@@ -1413,6 +1448,8 @@ function FriendsLobby({
         {error ? <Text style={{ color: T.coral, fontSize: 9, marginTop: 8 }}>{error}</Text> : null}
       </>
     ));
+
+  const isHost = players.find((p) => p.id === playerId)?.isHost ?? false;
 
   return shell("ROOM LOBBY", onBack, (
     <>
@@ -1447,7 +1484,7 @@ function FriendsLobby({
           </View>
         ))}
       </View>
-      {goldBtn(() => socket.current?.emit("start_match", { roomId }), players.length < 2 ? "WAITING FOR PLAYERS" : "START MATCH →", players.length < 2 || !roomId)}
+      {goldBtn(() => socket.current?.emit("start_match", { roomId }), !isHost ? "WAITING FOR HOST TO START" : players.length < 2 ? "WAITING FOR PLAYERS" : "START MATCH →", !isHost || players.length < 2 || !roomId)}
       {error ? <Text style={{ color: T.coral, fontSize: 9, marginTop: 8 }}>{error}</Text> : null}
     </>
   ));
@@ -1462,6 +1499,7 @@ function GameView({
   playerCount,
   currentBet,
   coinBalance,
+  network,
   onLeave,
   onWin,
   onStatsUpdate,
@@ -1470,12 +1508,14 @@ function GameView({
   playerCount: number;
   currentBet: number;
   coinBalance: number;
+  network: NetworkInfo | null;
   onLeave: () => void;
   onWin: (amount: number) => void;
   onStatsUpdate: (stats: FeedbackStats) => void;
 }) {
   const { width, height } = useWindowDimensions();
-  const [gameState, setGameState] = useState<GameState>(() => createGame(playerCount));
+  const humanId = network ? `player-${network.seatIndex}` : "player-0";
+  const [gameState, setGameState] = useState<GameState>(() => network?.gameState ?? createGame(playerCount));
   const [showLeaveConfirm, setShowLeaveConfirm] = useState(false);
   const [banner, setBanner] = useState<{ text: string; type: "thulla" | "safe" | "loser" | "info" } | null>(null);
   const bannerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1492,13 +1532,26 @@ function GameView({
     };
   }, []);
 
+  // Networked games are server-authoritative: mirror whatever state the server broadcasts.
+  useEffect(() => {
+    if (network?.gameState) setGameState(network.gameState);
+  }, [network?.gameState]);
+
+  // Fresh round (solo restart or networked game_restarted) → clear round-scoped UI state.
+  useEffect(() => {
+    if (!network) return;
+    lastMessageRef.current = "";
+    lastSafeRef.current = false;
+    setBanner(null);
+  }, [network?.gameId]);
+
   const { playCardPlay, playTrickWon, playSafe, playLoser, playTurnChange, playGameOver, playButtonPress } = useSound();
 
-  const humanPlayer = getHumanPlayer(gameState);
+  const humanPlayer = getHumanPlayer(gameState, humanId);
   const humanHand = humanPlayer?.hand ?? [];
-  const playableIds = getHumanPlayableIds(gameState);
+  const playableIds = getHumanPlayableIds(gameState, humanId);
   const ledSuit = getLedSuit(gameState);
-  const isHumanTurn = gameState.currentPlayerId === "player-0" && gameState.phase === "playing";
+  const isHumanTurn = gameState.currentPlayerId === humanId && gameState.phase === "playing";
   const isFinished = gameState.phase === "finished";
   const activePlayerCount = gameState.activePlayerIds.length;
 
@@ -1520,7 +1573,7 @@ function GameView({
   useEffect(() => {
     if (gameState.phase === "finished" && gameState.loserId) {
       const loser = gameState.players.find((p) => p.id === gameState.loserId);
-      const humanIsLoser = gameState.loserId === "player-0";
+      const humanIsLoser = gameState.loserId === humanId;
       setTimeout(() => {
         showBanner(`${loser?.name ?? "Player"} is the LOSER!`, "loser");
         playLoser();
@@ -1529,7 +1582,7 @@ function GameView({
       playGameOver();
       incrementStats({ gamesPlayed: 1, gamesWon: humanIsLoser ? 0 : 1, loserCount: humanIsLoser ? 1 : 0 }).then((updated) => onStatsUpdate(updated));
     }
-    const hp = gameState.players.find((p) => p.id === "player-0");
+    const hp = gameState.players.find((p) => p.id === humanId);
     if (hp?.safe && !lastSafeRef.current) {
       lastSafeRef.current = true;
       showBanner("You are SAFE!", "safe");
@@ -1552,21 +1605,22 @@ function GameView({
   useEffect(() => {
     const prevId = lastPlayerIdRef.current;
     lastPlayerIdRef.current = gameState.currentPlayerId;
-    if (gameState.phase === "playing" && gameState.currentPlayerId === "player-0" && prevId !== "player-0" && gameState.trick.length > 0) {
+    if (gameState.phase === "playing" && gameState.currentPlayerId === humanId && prevId !== humanId && gameState.trick.length > 0) {
       playTurnChange();
     }
   }, [gameState.currentPlayerId, gameState.phase, gameState.trick.length, playTurnChange]);
 
   useEffect(() => {
+    if (network) return;
     if (cpuTimerRef.current) { clearTimeout(cpuTimerRef.current); cpuTimerRef.current = null; }
     if (autoPlayTimerRef.current) { clearTimeout(autoPlayTimerRef.current); autoPlayTimerRef.current = null; }
 
     if (gameState.phase === "playing") {
-      if (gameState.currentPlayerId !== "player-0") {
+      if (gameState.currentPlayerId !== humanId) {
         // CPU turn — auto-play after 800ms
         cpuTimerRef.current = setTimeout(() => {
           setGameState((prev) => {
-            if (prev.phase !== "playing" || prev.currentPlayerId === "player-0") return prev;
+            if (prev.phase !== "playing" || prev.currentPlayerId === humanId) return prev;
             return playCpuTurn(prev);
           });
         }, 800);
@@ -1574,13 +1628,13 @@ function GameView({
         // Human turn — auto-play a random valid card after 10 seconds
         autoPlayTimerRef.current = setTimeout(() => {
           setGameState((prev) => {
-            if (prev.phase !== "playing" || prev.currentPlayerId !== "player-0") return prev;
-            const hp = prev.players.find((p) => p.id === "player-0");
+            if (prev.phase !== "playing" || prev.currentPlayerId !== humanId) return prev;
+            const hp = prev.players.find((p) => p.id === humanId);
             if (!hp) return prev;
             const options = playableCards(hp, prev.trick);
             if (!options.length) return prev;
             const card = options[Math.floor(Math.random() * options.length)];
-            return enginePlay(prev, "player-0", card.id).state;
+            return enginePlay(prev, humanId, card.id).state;
           });
         }, 10000);
       }
@@ -1590,28 +1644,36 @@ function GameView({
       if (cpuTimerRef.current) clearTimeout(cpuTimerRef.current);
       if (autoPlayTimerRef.current) clearTimeout(autoPlayTimerRef.current);
     };
-  }, [gameState.currentPlayerId, gameState.phase, gameState.trick.length]);
+  }, [gameState.currentPlayerId, gameState.phase, gameState.trick.length, humanId, network]);
 
   const handlePlayCard = useCallback(
     (cardId: string) => {
       if (!isHumanTurn) return;
       if (!playableIds.has(cardId)) return;
       playCardPlay();
+      if (network) {
+        network.socket.emit("play_card", { roomId: network.roomId, cardId });
+        return;
+      }
       setGameState((prev) => {
-        const result = enginePlay(prev, "player-0", cardId);
+        const result = enginePlay(prev, humanId, cardId);
         return result.error ? prev : result.state;
       });
     },
-    [isHumanTurn, playableIds, playCardPlay],
+    [isHumanTurn, playableIds, playCardPlay, network, humanId],
   );
 
   const startNewGame = useCallback(() => {
     playButtonPress();
+    if (network) {
+      network.socket.emit("restart_match", { roomId: network.roomId });
+      return;
+    }
     setGameState(createGame(playerCount));
     setBanner(null);
     lastMessageRef.current = "";
     lastSafeRef.current = false;
-  }, [playerCount, playButtonPress]);
+  }, [playerCount, playButtonPress, network]);
 
   const getPlayerPositions = () => {
     const positions: Array<{ id: string; name: string; x: number; y: number; isHuman: boolean; cardCount: number; safe: boolean }> = [];
@@ -1621,14 +1683,14 @@ function GameView({
     const ry = height * 0.28;
 
     gameState.players.forEach((player, index) => {
-      const isHuman = player.id === "player-0";
+      const isHuman = player.id === humanId;
       let x: number;
       let y: number;
       if (isHuman) {
         x = cx;
         y = height - 10;
       } else {
-        const otherPlayers = gameState.players.filter((p) => p.id !== "player-0");
+        const otherPlayers = gameState.players.filter((p) => p.id !== humanId);
         const otherIndex = otherPlayers.indexOf(player);
         const totalOthers = otherPlayers.length;
         const startAngle = -Math.PI * 0.8;
@@ -1668,7 +1730,7 @@ function GameView({
           </View>
         </View>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
-          {gameState.players.filter(p => p.id !== "player-0").map(p => (
+          {gameState.players.filter(p => p.id !== humanId).map(p => (
             <View key={p.id} style={{ width: 22, height: 22, borderRadius: 999, backgroundColor: gameState.currentPlayerId === p.id ? T.accent : "rgba(232,245,238,0.08)", borderWidth: 1, borderColor: gameState.currentPlayerId === p.id ? T.accent : "rgba(232,245,238,0.1)", alignItems: "center", justifyContent: "center" }}>
               <Text style={{ fontSize: 8, fontWeight: "900", color: gameState.currentPlayerId === p.id ? T.bg : T.textDim }}>{p.hand.length}</Text>
             </View>
@@ -1694,7 +1756,7 @@ function GameView({
           {gameState.trick.map((play) => {
             const playerPos = playerPositions.find((p) => p.id === play.playerId);
             if (!playerPos) return null;
-            const isHuman = play.playerId === "player-0";
+            const isHuman = play.playerId === humanId;
             const cardX = width / 2 - smallCardWidth / 2 + (gameState.trick.indexOf(play) - gameState.trick.length / 2) * (smallCardWidth + 4);
             const cardY = isHuman ? height * 0.30 : height * 0.22;
             return (
@@ -1780,15 +1842,21 @@ function GameView({
         ) : (
           <View style={{ alignItems: "center", paddingVertical: 6 }}>
             <Text style={{ color: T.gold, fontSize: fs(width, 12), fontWeight: "900" }}>
-              {gameState.loserId ? (gameState.loserId === "player-0" ? "YOU ARE THE LOSER!" : `${gameState.players.find((p) => p.id === gameState.loserId)?.name} IS THE LOSER!`) : "ROUND OVER"}
+              {gameState.loserId ? (gameState.loserId === humanId ? "YOU ARE THE LOSER!" : `${gameState.players.find((p) => p.id === gameState.loserId)?.name} IS THE LOSER!`) : "ROUND OVER"}
             </Text>
-            {gameState.loserId && gameState.loserId !== "player-0" && (
+            {gameState.loserId && gameState.loserId !== humanId && (
               <View style={{ backgroundColor: "rgba(52,211,153,0.1)", borderWidth: 1, borderColor: "rgba(52,211,153,0.2)", borderRadius: 5, paddingHorizontal: 10, paddingVertical: 3, marginTop: 4 }}>
                 <Text style={{ color: T.accent, fontSize: 9, fontWeight: "900" }}>+{currentBet.toLocaleString()} COINS WON!</Text>
               </View>
             )}
-            <AnimatedPressable onPress={startNewGame} style={{ backgroundColor: T.gold, borderRadius: 8, paddingHorizontal: 20, paddingVertical: 6, marginTop: 6 }}>
-              <Text style={{ color: T.bg, fontSize: 8, fontWeight: "900", letterSpacing: 1 }}>PLAY AGAIN →</Text>
+            <AnimatedPressable
+              onPress={startNewGame}
+              disabled={network ? network.seatIndex !== 0 : false}
+              style={{ backgroundColor: network && network.seatIndex !== 0 ? "rgba(212,168,67,0.3)" : T.gold, borderRadius: 8, paddingHorizontal: 20, paddingVertical: 6, marginTop: 6 }}
+            >
+              <Text style={{ color: T.bg, fontSize: 8, fontWeight: "900", letterSpacing: 1 }}>
+                {network && network.seatIndex !== 0 ? "WAITING FOR HOST" : "PLAY AGAIN →"}
+              </Text>
             </AnimatedPressable>
           </View>
         )}
@@ -1973,6 +2041,7 @@ export default function GameScreen() {
   const [onboardingPage, setOnboardingPage] = useState(0);
   const [selectedPlayerCount, setSelectedPlayerCount] = useState(4);
   const [showFeedback, setShowFeedback] = useState(false);
+  const [network, setNetwork] = useState<NetworkInfo | null>(null);
   const [coinBalance, setCoinBalance] = useState(0);
   const [currentBet, setCurrentBet] = useState(MIN_BET);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
@@ -1997,6 +2066,22 @@ export default function GameScreen() {
     const timer = setTimeout(() => setStage("onboarding"), 1700);
     return () => clearTimeout(timer);
   }, []);
+
+  // Networked match: sync authoritative game state + restart broadcasts.
+  useEffect(() => {
+    if (!network) return;
+    const socket = network.socket;
+    const onGameUpdate = ({ gameState }: { gameState: GameState }) =>
+      setNetwork((prev) => (prev ? { ...prev, gameState } : prev));
+    const onGameRestarted = ({ gameId, gameState }: { gameId: string; gameState: GameState }) =>
+      setNetwork((prev) => (prev ? { ...prev, gameId, gameState } : prev));
+    socket.on("game_update", onGameUpdate);
+    socket.on("game_restarted", onGameRestarted);
+    return () => {
+      socket.off("game_update", onGameUpdate);
+      socket.off("game_restarted", onGameRestarted);
+    };
+  }, [network]);
 
   const cardWidth = Math.max(36, Math.min(48, Math.min(width, height) * 0.11));
 
@@ -2031,7 +2116,7 @@ export default function GameScreen() {
       </View>
     );
   if (stage === "lobby")
-    return <FriendsLobby onStart={(playerCount) => { setSelectedPlayerCount(playerCount); setStage("game"); }} onBack={() => setStage("menu")} />;
+    return <FriendsLobby onMatchStart={(info) => { setNetwork(info); setSelectedPlayerCount(info.playerCount); setStage("game"); }} onBack={() => setStage("menu")} />;
 
   return (
     <GameView
@@ -2039,7 +2124,14 @@ export default function GameScreen() {
       playerCount={selectedPlayerCount}
       currentBet={currentBet}
       coinBalance={coinBalance}
-      onLeave={async () => { const newBal = await applyLeavePenalty(currentBet); setCoinBalance(newBal); setStage("menu"); }}
+      network={network}
+      onLeave={async () => {
+        network?.socket?.disconnect();
+        setNetwork(null);
+        const newBal = await applyLeavePenalty(currentBet);
+        setCoinBalance(newBal);
+        setStage("menu");
+      }}
       onWin={async (amount) => { const newBal = await awardWinnings(amount); setCoinBalance(newBal); }}
       onStatsUpdate={setStats}
     />

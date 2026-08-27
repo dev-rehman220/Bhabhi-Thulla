@@ -2,6 +2,7 @@ const express = require("express");
 const http = require("http");
 const { Server } = require("socket.io");
 const cors = require("cors");
+const engine = require("./gameEngine");
 
 const app = express();
 app.use(cors());
@@ -45,6 +46,51 @@ function roomToJSON(room) {
   };
 }
 
+function makeGameId() {
+  return `game_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+// Builds an authoritative game for a room, preserving each player's seat across restarts.
+// Any seat with no live player is handed over to a CPU.
+function buildGameForRoom(room) {
+  room.players.forEach((p, i) => {
+    if (typeof p.seatIndex !== "number") p.seatIndex = i;
+  });
+  const requested = Math.max(2, ...room.players.map((p) => p.seatIndex + 1));
+  let state = engine.createNetworkGame(requested);
+  const liveSeats = new Set(room.players.map((p) => p.seatIndex));
+  for (let i = 0; i < state.players.length; i += 1) {
+    if (!liveSeats.has(i)) state = engine.setPlayerCpu(state, `player-${i}`, true);
+  }
+  return state;
+}
+
+function isCpuTurn(state) {
+  if (!state || state.phase !== "playing" || !state.currentPlayerId) return false;
+  const player = state.players.find((p) => p.id === state.currentPlayerId);
+  return Boolean(player && player.isCpu);
+}
+
+function stopCpuTimer(room) {
+  if (room.cpuTimer) {
+    clearInterval(room.cpuTimer);
+    room.cpuTimer = null;
+  }
+}
+
+function scheduleCpuTurns(room) {
+  if (room.cpuTimer || !room.game) return;
+  room.cpuTimer = setInterval(() => {
+    const state = room.game && room.game.state;
+    if (!state || state.phase !== "playing" || !isCpuTurn(state)) {
+      stopCpuTimer(room);
+      return;
+    }
+    room.game.state = engine.playCpuTurn(state);
+    io.to(room.id).emit("game_update", { gameId: room.game.gameId, gameState: room.game.state });
+  }, 700);
+}
+
 // ─── Socket Events ─────────────────────────────────────────────
 io.on("connection", (socket) => {
   console.log(`[CONNECT] ${socket.id}`);
@@ -54,6 +100,11 @@ io.on("connection", (socket) => {
     const maxPlayers = settings?.maxPlayers ?? 4;
 
     let room = rooms.get(roomId);
+
+    if (room && room.started) {
+      socket.emit("error", { code: "MATCH_IN_PROGRESS" });
+      return;
+    }
 
     if (!room) {
       // Create new room
@@ -136,12 +187,70 @@ io.on("connection", (socket) => {
     }
 
     room.started = true;
+    const gameState = buildGameForRoom(room);
+    room.game = { gameId: makeGameId(), state: gameState };
+    const seatIndexByPlayerId = {};
+    room.players.forEach((p) => {
+      seatIndexByPlayerId[p.id] = p.seatIndex;
+    });
     console.log(`[MATCH STARTED] ${room.inviteCode} (${room.players.length} players)`);
 
     io.to(roomId).emit("match_started", {
+      roomId,
+      gameId: room.game.gameId,
       playerCount: room.players.length,
       players: room.players.map((p) => ({ id: p.id, name: p.displayName })),
+      gameState: room.game.state,
+      seatIndexByPlayerId,
     });
+
+    // If the opening seat is a CPU (e.g. a 2-human room's filler seat), kick off auto-play.
+    if (isCpuTurn(room.game.state)) scheduleCpuTurns(room);
+  });
+
+  // ── Play Card (networked game) ──────────────────────────────
+  socket.on("play_card", ({ roomId, cardId }) => {
+    const room = rooms.get(roomId);
+    if (!room || !room.game) {
+      socket.emit("error", { code: "GAME_NOT_RUNNING" });
+      return;
+    }
+    const player = room.players.find((p) => p.socketId === socket.id);
+    if (!player) {
+      socket.emit("error", { code: "NOT_IN_ROOM" });
+      return;
+    }
+    const result = engine.playCard(room.game.state, `player-${player.seatIndex}`, cardId);
+    if (result.error) {
+      socket.emit("error", { code: "INVALID_MOVE", message: result.error });
+      return;
+    }
+    room.game.state = result.state;
+    io.to(roomId).emit("game_update", { gameId: room.game.gameId, gameState: room.game.state });
+    if (isCpuTurn(room.game.state)) scheduleCpuTurns(room);
+  });
+
+  // ── Restart Match ───────────────────────────────────────────
+  socket.on("restart_match", ({ roomId }) => {
+    const room = rooms.get(roomId);
+    if (!room) {
+      socket.emit("error", { code: "ROOM_NOT_FOUND" });
+      return;
+    }
+    const sender = room.players.find((p) => p.socketId === socket.id);
+    if (!sender || !sender.isHost) {
+      socket.emit("error", { code: "NOT_HOST" });
+      return;
+    }
+    if (!room.game) {
+      socket.emit("error", { code: "GAME_NOT_RUNNING" });
+      return;
+    }
+    stopCpuTimer(room);
+    const gameState = buildGameForRoom(room);
+    room.game = { gameId: makeGameId(), state: gameState };
+    io.to(roomId).emit("game_restarted", { roomId, gameId: room.game.gameId, gameState });
+    if (isCpuTurn(room.game.state)) scheduleCpuTurns(room);
   });
 
   // ── Disconnect ──────────────────────────────────────────────
@@ -152,6 +261,15 @@ io.on("connection", (socket) => {
     const room = rooms.get(roomId);
     if (!room) return;
 
+    const leaving = room.players.find((p) => p.id === playerId);
+
+    // Mid-match disconnect: hand the empty seat to a CPU and keep the round going.
+    if (room.game && leaving && typeof leaving.seatIndex === "number") {
+      room.game.state = engine.setPlayerCpu(room.game.state, `player-${leaving.seatIndex}`, true);
+      io.to(roomId).emit("game_update", { gameId: room.game.gameId, gameState: room.game.state });
+      if (isCpuTurn(room.game.state)) scheduleCpuTurns(room);
+    }
+
     // Remove player from room
     room.players = room.players.filter((p) => p.id !== playerId);
 
@@ -159,6 +277,7 @@ io.on("connection", (socket) => {
 
     // If room is empty, delete it
     if (room.players.length === 0) {
+      stopCpuTimer(room);
       rooms.delete(roomId);
       console.log(`[ROOM DELETED] ${room.inviteCode}`);
       return;
