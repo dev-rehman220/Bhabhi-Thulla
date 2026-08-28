@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import {
   Pressable,
   ScrollView,
@@ -8,9 +8,11 @@ import {
   View,
   Platform,
   BackHandler,
+  Modal,
 } from "react-native";
 import type { ReactNode } from "react";
 import Constants from "expo-constants";
+import { Image } from "expo-image";
 import { io, Socket } from "socket.io-client";
 import Animated, {
   useSharedValue,
@@ -27,23 +29,22 @@ import Animated, {
   Layout,
 } from "react-native-reanimated";
 import { HamburgerMenu } from "@/components/HamburgerMenu";
-import type { MenuItem } from "@/components/HamburgerMenu";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { FeedbackSummary } from "@/components/FeedbackSummary";
 import type { FeedbackStats } from "@/components/FeedbackSummary";
 import { useSound } from "@/hooks/useSound";
+import { AVATARS, AVATAR_IDS, isAvatarId } from "@/constants/avatars";
+import { loadProfile, saveProfile, MAX_PROFILE_NAME_LENGTH } from "@/utils/profile";
+import type { Profile } from "@/utils/profile";
 import { loadStats, incrementStats } from "@/utils/gameStats";
 import {
   createGame,
   playCard as enginePlay,
   playCpuTurn,
-  playableCards,
 } from "@/game/gameEngine";
 import type { GameState, GameCard, GamePlayer, Suit } from "@/game/gameEngine";
 import {
   claimWelcomeBonus,
-  getBalance,
-  placeBet,
   awardWinnings,
   applyLeavePenalty,
   getTransactionHistory,
@@ -103,7 +104,9 @@ type Stage =
   | "settings"
   | "stats"
   | "howtoplay"
-  | "betting";
+  | "betting"
+  | "online"
+  | "profile";
 
 const SUIT_SYMBOL: Record<Suit, string> = {
   spades: "♠",
@@ -134,12 +137,73 @@ function getLedSuit(state: GameState): Suit | null {
 function getHumanPlayableIds(state: GameState, humanId: string): Set<string> {
   const human = getHumanPlayer(state, humanId);
   if (!human) return new Set();
+  if (!state.trick.length && state.discardCount === 0) {
+    const aceOfSpades = human.hand.find((c) => c.id === "A-spades");
+    return new Set(aceOfSpades ? [aceOfSpades.id] : []);
+  }
   const ledSuit = getLedSuit(state);
   const ledCards = ledSuit
     ? human.hand.filter((c) => c.suit === ledSuit)
     : [];
   const playable = ledCards.length ? ledCards : human.hand;
   return new Set(playable.map((c) => c.id));
+}
+
+function avatarAsset(avatarId: string | undefined): number | undefined {
+  return isAvatarId(avatarId) ? AVATARS[avatarId] : undefined;
+}
+
+function AvatarChip({
+  avatarId,
+  label,
+  size = 22,
+  border = "rgba(52,211,153,0.35)",
+}: {
+  avatarId?: string;
+  label?: string;
+  size?: number;
+  border?: string;
+}) {
+  const asset = avatarAsset(avatarId);
+  if (asset) {
+    return (
+      <View style={{ width: size, height: size, borderRadius: 999, overflow: "hidden", borderWidth: 1, borderColor: border }}>
+        <Image source={asset} style={{ width: size, height: size }} contentFit="cover" />
+      </View>
+    );
+  }
+  return (
+    <View style={{ width: size, height: size, borderRadius: 999, backgroundColor: T.accent, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: border }}>
+      <Text style={{ color: T.bg, fontWeight: "900", fontSize: Math.max(7, size * 0.4) }}>
+        {label?.slice(0, 1).toUpperCase() ?? "?"}
+      </Text>
+    </View>
+  );
+}
+
+/* ================================================================
+   HAND SORTING – group the player's cards by suit, then rank
+   ================================================================ */
+
+const SUIT_PRIORITY: Record<Suit, number> = { spades: 0, hearts: 1, clubs: 2, diamonds: 3 };
+const RANK_PRIORITY: Record<GameCard["rank"], number> = {
+  "2": 2, "3": 3, "4": 4, "5": 5, "6": 6, "7": 7, "8": 8, "9": 9, "10": 10, J: 11, Q: 12, K: 13, A: 14,
+};
+
+function sortHand(hand: GameCard[]): GameCard[] {
+  return [...hand].sort(
+    (a, b) => SUIT_PRIORITY[a.suit] - SUIT_PRIORITY[b.suit] || RANK_PRIORITY[a.rank] - RANK_PRIORITY[b.rank],
+  );
+}
+
+function resolveServerUrl(): string {
+  const hostUri = (Constants.expoConfig as any)?.hostUri as string | undefined;
+  return (
+    process.env.EXPO_PUBLIC_SERVER_URL ??
+    (typeof window !== "undefined" && typeof window.location?.hostname === "string"
+      ? `http://${window.location.hostname}:3001`
+      : `http://${hostUri?.split(":")[0] ?? "localhost"}:3001`)
+  );
 }
 
 /* ================================================================
@@ -168,13 +232,15 @@ function AnimatedPressable({
     <Pressable
       onPress={onPress}
       onPressIn={() => {
+        // eslint-disable-next-line react-hooks/immutability -- reanimated shared value mutation is the intended API
         scale.value = withSpring(0.97, { damping: 15, stiffness: 400 });
       }}
       onPressOut={() => {
+        // eslint-disable-next-line react-hooks/immutability -- reanimated shared value mutation is the intended API
         scale.value = withSpring(1, { damping: 15, stiffness: 400 });
       }}
       disabled={disabled}
-      style={[{ flex: 1 }, style]}
+      style={[{ flex: 1 }, animStyle, style]}
     >
       {children}
     </Pressable>
@@ -224,7 +290,7 @@ function FloatingDecorCard({
         true,
       ),
     );
-  }, []);
+  }, [delay, rotation, floatY, rotationAnim]);
 
   const animatedStyle = useAnimatedStyle(() => ({
     transform: [
@@ -277,7 +343,7 @@ function SplashView() {
       -1,
       false,
     );
-  }, []);
+  }, [progress, fadeAnim, rotateAnim]);
 
   const contentStyle = useAnimatedStyle(() => ({
     opacity: interpolate(progress.value, [0, 0.6], [0, 1], { extrapolateRight: "clamp" }),
@@ -440,7 +506,7 @@ function OnboardingView({
   setPage: (p: number) => void;
   onFinish: () => void;
 }) {
-  const { width } = useWindowDimensions();
+  useWindowDimensions();
   const slides = [
     {
       accentColor: "#34D399",
@@ -584,14 +650,6 @@ function OnboardingView({
               {page < slides.length - 1 ? "CONTINUE" : "GET STARTED"}
             </Text>
           </Pressable>
-
-          {page > 0 && page < slides.length - 1 && (
-            <Pressable onPress={onFinish} style={{ marginTop: 10 }}>
-              <Text style={{ color: "rgba(232,245,238,0.35)", fontSize: 9, fontWeight: "600", letterSpacing: 1 }}>
-                SKIP INTRO
-              </Text>
-            </Pressable>
-          )}
         </Animated.View>
       </View>
     </View>
@@ -604,23 +662,28 @@ function OnboardingView({
 
 function MenuView({
   coinBalance,
+  profile,
   onPlay,
   onFriends,
+  onOnline,
   onSettings,
   onStats,
   onHowToPlay,
+  onProfile,
 }: {
   coinBalance: number;
+  profile: Profile;
   onPlay: (playerCount: number) => void;
   onFriends: () => void;
+  onOnline: () => void;
   onSettings: () => void;
   onStats: () => void;
   onHowToPlay: () => void;
+  onProfile: () => void;
 }) {
-  const { width, height } = useWindowDimensions();
+  const { width } = useWindowDimensions();
   const [showPlayerSelect, setShowPlayerSelect] = useState(false);
   const shimmer = useSharedValue(0);
-  const glowAnim = useSharedValue(0.5);
 
   useEffect(() => {
     shimmer.value = withRepeat(
@@ -628,22 +691,10 @@ function MenuView({
       -1,
       true,
     );
-    glowAnim.value = withRepeat(
-      withSequence(
-        withTiming(1, { duration: 2000, easing: Easing.inOut(Easing.sin) }),
-        withTiming(0.5, { duration: 2000, easing: Easing.inOut(Easing.sin) }),
-      ),
-      -1,
-      true,
-    );
-  }, []);
+  }, [shimmer]);
 
   const shimmerStyle = useAnimatedStyle(() => ({
     opacity: interpolate(shimmer.value, [0, 1], [0.01, 0.04]),
-  }));
-
-  const glowAnimStyle = useAnimatedStyle(() => ({
-    opacity: glowAnim.value,
   }));
 
   return (
@@ -678,62 +729,52 @@ function MenuView({
             <Text style={{ color: "rgba(232,245,238,0.4)", fontSize: fs(width, 10), letterSpacing: 3, fontWeight: "500" }}>
               GET AWAY THULLA
             </Text>
-            <View style={{ backgroundColor: "rgba(52,211,153,0.12)", borderWidth: 1, borderColor: "rgba(52,211,153,0.25)", borderRadius: 999, paddingHorizontal: 10, paddingVertical: 2, marginLeft: 4 }}>
-              <Text style={{ color: T.accent, fontSize: 7, letterSpacing: 2, fontWeight: "900" }}>PRO</Text>
-            </View>
+            <Pressable onPress={onProfile} style={{ flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: "rgba(212,168,67,0.08)", borderWidth: 1, borderColor: "rgba(212,168,67,0.25)", borderRadius: 999, paddingHorizontal: 8, paddingVertical: 3, marginLeft: 4 }}>
+              <AvatarChip avatarId={profile.avatarId} size={20} label={profile.name} border="rgba(212,168,67,0.4)" />
+              <Text style={{ color: T.gold, fontSize: fs(width, 8), fontWeight: "900", maxWidth: 96 }} numberOfLines={1}>
+                {profile.name}
+              </Text>
+            </Pressable>
           </View>
-          <HamburgerMenu items={[
-            { label: "Settings", icon: "⚙️", onPress: onSettings },
-            { label: "Statistics", icon: "📊", onPress: onStats },
-            { label: "How to Play", icon: "📖", onPress: onHowToPlay },
-            { label: "Exit App", icon: "🚪", onPress: () => { if (Platform.OS === "android") require("react-native").BackHandler?.exitApp(); }, destructive: true },
-          ]} />
+          <View style={{ flexDirection: "row", alignItems: "center", gap: rs(width, 10) }}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: "rgba(212,168,67,0.08)", borderWidth: 1, borderColor: "rgba(212,168,67,0.25)", borderRadius: 999, paddingHorizontal: 8, paddingVertical: 3 }}>
+              <Text style={{ fontSize: 10 }}>💰</Text>
+              <Text style={{ color: T.gold, fontSize: fs(width, 8), fontWeight: "900" }}>{coinBalance.toLocaleString()}</Text>
+            </View>
+            <HamburgerMenu items={[
+              { label: "Profile", icon: "👤", onPress: onProfile },
+              { label: "Settings", icon: "⚙️", onPress: onSettings },
+              { label: "Statistics", icon: "📊", onPress: onStats },
+              { label: "How to Play", icon: "📖", onPress: onHowToPlay },
+              { label: "Exit App", icon: "🚪", onPress: () => { if (Platform.OS === "android") BackHandler.exitApp(); }, destructive: true },
+            ]} />
+          </View>
         </View>
 
         {/* Main Content */}
         <View style={{ flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", paddingHorizontal: rs(width, 32), gap: rs(width, 40) }}>
           {/* Left Side */}
-          <View style={{ flex: 1, maxWidth: rs(width, 380) }}>
-            <View>
-              <Animated.View style={[glowAnimStyle, { position: "absolute", left: -24, top: -24 }]} pointerEvents="none">
-                <View style={{ width: 200, height: 80, borderRadius: 40, backgroundColor: "rgba(52,211,153,0.04)" }} />
-              </Animated.View>
-              <Text style={{ color: "rgba(232,245,238,0.5)", fontSize: fs(width, 11), letterSpacing: 4, fontWeight: "500", marginBottom: 8 }}>
-                PREMIUM EDITION
-              </Text>
-              <Text style={{ color: T.text, fontSize: fs(width, 28), fontWeight: "900", letterSpacing: 2, lineHeight: 34 }}>
-                GET AWAY{"\n"}
-                <Text style={{ color: T.gold }}>THULLA</Text>
-              </Text>
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginTop: 12 }}>
-                <View style={{ height: 1, width: 32, backgroundColor: "rgba(212,168,67,0.3)" }} />
-                <Text style={{ color: "rgba(212,168,67,0.5)", fontSize: fs(width, 8), letterSpacing: 3, fontWeight: "500" }}>
-                  CLASSIC CARD GAME
-                </Text>
-                <View style={{ height: 1, flex: 1, backgroundColor: "rgba(212,168,67,0.1)" }} />
+          <View style={{ flex: 1, maxWidth: rs(width, 520) }}>
+            {/* PLAY ONLINE */}
+            <AnimatedPressable
+              onPress={onOnline}
+              style={{ marginTop: rs(width, 14), borderRadius: 18, overflow: "hidden", shadowColor: T.accent, shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.2, shadowRadius: 22, elevation: 12 }}
+            >
+              <View style={{ padding: rs(width, 14), borderWidth: 1, borderColor: "rgba(52,211,153,0.35)", backgroundColor: "rgba(10,40,26,0.9)", borderRadius: 14, flexDirection: "row", alignItems: "center", position: "relative", minHeight: rs(width, 58) }}>
+                <View style={{ position: "absolute", top: 0, left: 16, right: 16, height: 1, backgroundColor: T.accent, opacity: 0.6 }} />
+                <View style={{ width: rs(width, 44), height: rs(width, 56), borderRadius: 12, backgroundColor: "rgba(52,211,153,0.12)", borderWidth: 1, borderColor: "rgba(52,211,153,0.3)", alignItems: "center", justifyContent: "center", marginRight: rs(width, 14) }}>
+                  <Text style={{ fontSize: rs(width, 22) }}>🌐</Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: T.accent, fontSize: fs(width, 7), letterSpacing: 2.5, fontWeight: "900" }}>QUICK MATCH</Text>
+                  <Text style={{ color: T.text, fontSize: fs(width, 14), fontWeight: "900", marginTop: 2 }}>PLAY ONLINE</Text>
+                  <Text style={{ color: "rgba(232,245,238,0.35)", fontSize: fs(width, 9), marginTop: 4, lineHeight: 14 }} numberOfLines={2}>Jump into a live table with real players from anywhere.</Text>
+                </View>
+                <View style={{ width: rs(width, 28), height: rs(width, 28), borderRadius: 999, backgroundColor: "rgba(52,211,153,0.1)", borderWidth: 1, borderColor: "rgba(52,211,153,0.3)", alignItems: "center", justifyContent: "center" }}>
+                  <Text style={{ color: T.accent, fontSize: 12, fontWeight: "900" }}>→</Text>
+                </View>
               </View>
-            </View>
-
-            {/* Coin Balance */}
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: "rgba(52,211,153,0.04)", borderWidth: 1, borderColor: "rgba(52,211,153,0.12)", borderRadius: 12, paddingHorizontal: 14, paddingVertical: 8, marginTop: 16 }}>
-              <View style={{ width: 30, height: 30, borderRadius: 999, backgroundColor: "rgba(52,211,153,0.08)", borderWidth: 1, borderColor: "rgba(52,211,153,0.2)", alignItems: "center", justifyContent: "center" }}>
-                <Text style={{ fontSize: 14 }}>💰</Text>
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={{ color: T.textDim, fontSize: 6, letterSpacing: 2, fontWeight: "900" }}>YOUR BALANCE</Text>
-                <Text style={{ color: T.gold, fontSize: 18, fontWeight: "900" }}>{coinBalance.toLocaleString()}</Text>
-              </View>
-              <View style={{ backgroundColor: "rgba(52,211,153,0.08)", borderWidth: 1, borderColor: "rgba(52,211,153,0.15)", borderRadius: 6, paddingHorizontal: 8, paddingVertical: 4 }}>
-                <Text style={{ color: T.accent, fontSize: 7, fontWeight: "900", letterSpacing: 1 }}>COINS</Text>
-              </View>
-            </View>
-
-            {/* Footer */}
-            <View style={{ marginTop: "auto", paddingTop: 16 }}>
-              <Text style={{ color: T.textDim, fontSize: 7, letterSpacing: 3, fontWeight: "500" }}>
-                GET AWAY THULLA · PREMIUM EDITION · v1.0
-              </Text>
-            </View>
+            </AnimatedPressable>
           </View>
 
           {/* Right Side: Mode Cards */}
@@ -745,14 +786,14 @@ function MenuView({
             >
               <View style={{ padding: rs(width, 14), borderWidth: 1, borderColor: "rgba(212,168,67,0.12)", backgroundColor: T.card, borderRadius: 14, position: "relative" }}>
                 <View style={{ position: "absolute", top: 0, left: 16, right: 16, height: 1, backgroundColor: T.gold, opacity: 0.3 }} />
-                <View style={{ flexDirection: "row", alignItems: "center" }}>
+                <View style={{ flexDirection: "row", alignItems: "center", minHeight: rs(width, 58) }}>
                   <View style={{ width: rs(width, 44), height: rs(width, 56), borderRadius: 12, backgroundColor: "rgba(52,211,153,0.06)", borderWidth: 1, borderColor: "rgba(52,211,153,0.15)", alignItems: "center", justifyContent: "center", marginRight: rs(width, 14) }}>
                     <Text style={{ color: T.accent, fontSize: rs(width, 24) }}>♠</Text>
                   </View>
                   <View style={{ flex: 1 }}>
                     <Text style={{ color: T.textDim, fontSize: fs(width, 7), letterSpacing: 2.5, fontWeight: "900" }}>SOLO MATCH</Text>
                     <Text style={{ color: T.text, fontSize: fs(width, 14), fontWeight: "900", marginTop: 2 }}>PLAY VS CPU</Text>
-                    <Text style={{ color: "rgba(232,245,238,0.3)", fontSize: fs(width, 9), marginTop: 4, lineHeight: 14 }}>Challenge adaptive AI opponents across difficulty levels.</Text>
+                    <Text style={{ color: "rgba(232,245,238,0.3)", fontSize: fs(width, 9), marginTop: 4, lineHeight: 14 }} numberOfLines={2}>Challenge adaptive AI opponents across difficulty levels.</Text>
                   </View>
                   <View style={{ width: rs(width, 28), height: rs(width, 28), borderRadius: 999, backgroundColor: "rgba(52,211,153,0.06)", borderWidth: 1, borderColor: "rgba(52,211,153,0.2)", alignItems: "center", justifyContent: "center" }}>
                     <Text style={{ color: T.accent, fontSize: 12, fontWeight: "900" }}>→</Text>
@@ -768,14 +809,14 @@ function MenuView({
             >
               <View style={{ padding: rs(width, 14), borderWidth: 1, borderColor: "rgba(52,211,153,0.1)", backgroundColor: T.card, borderRadius: 14, position: "relative" }}>
                 <View style={{ position: "absolute", top: 0, left: 16, right: 16, height: 1, backgroundColor: T.accent, opacity: 0.2 }} />
-                <View style={{ flexDirection: "row", alignItems: "center" }}>
+                <View style={{ flexDirection: "row", alignItems: "center", minHeight: rs(width, 58) }}>
                   <View style={{ width: rs(width, 44), height: rs(width, 56), borderRadius: 12, backgroundColor: "rgba(212,168,67,0.05)", borderWidth: 1, borderColor: "rgba(212,168,67,0.12)", alignItems: "center", justifyContent: "center", marginRight: rs(width, 14) }}>
                     <Text style={{ color: T.gold, fontSize: rs(width, 24) }}>♣</Text>
                   </View>
                   <View style={{ flex: 1 }}>
                     <Text style={{ color: "rgba(212,168,67,0.5)", fontSize: fs(width, 7), letterSpacing: 2.5, fontWeight: "900" }}>LOCAL TABLE</Text>
                     <Text style={{ color: T.text, fontSize: fs(width, 14), fontWeight: "900", marginTop: 2 }}>PLAY WITH FRIENDS</Text>
-                    <Text style={{ color: "rgba(232,245,238,0.3)", fontSize: fs(width, 9), marginTop: 4, lineHeight: 14 }}>Create a room and deal in with your crew on the same network.</Text>
+                    <Text style={{ color: "rgba(232,245,238,0.3)", fontSize: fs(width, 9), marginTop: 4, lineHeight: 14 }} numberOfLines={2}>Create a room and deal in with your crew on the same network.</Text>
                   </View>
                   <View style={{ width: rs(width, 28), height: rs(width, 28), borderRadius: 999, backgroundColor: "rgba(212,168,67,0.06)", borderWidth: 1, borderColor: "rgba(212,168,67,0.15)", alignItems: "center", justifyContent: "center" }}>
                     <Text style={{ color: "rgba(212,168,67,0.7)", fontSize: 12, fontWeight: "900" }}>→</Text>
@@ -831,12 +872,8 @@ function MenuView({
    SETTINGS PAGE
    ================================================================ */
 
-function SettingsPage({ onBack }: { onBack: () => void }) {
-  const { width } = useWindowDimensions();
-  const [soundEnabled, setSoundEnabled] = useState(true);
-  const [hapticsEnabled, setHapticsEnabled] = useState(true);
-
-  const Toggle = ({ value, onToggle }: { value: boolean; onToggle: () => void }) => (
+function SettingsToggle({ value, onToggle }: { value: boolean; onToggle: () => void }) {
+  return (
     <Pressable
       onPress={onToggle}
       style={{
@@ -861,8 +898,11 @@ function SettingsPage({ onBack }: { onBack: () => void }) {
       />
     </Pressable>
   );
+}
 
-  const SettingRow = ({ icon, title, subtitle, children }: { icon: string; title: string; subtitle: string; children: ReactNode }) => (
+function SettingsRow({ icon, title, subtitle, children }: { icon: string; title: string; subtitle: string; children: ReactNode }) {
+  const { width } = useWindowDimensions();
+  return (
     <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: rs(width, 14), paddingVertical: rs(width, 10), borderWidth: 1, borderColor: "rgba(232,245,238,0.04)", backgroundColor: T.card, borderRadius: 12 }}>
       <View style={{ flexDirection: "row", alignItems: "center", gap: 10, flex: 1 }}>
         <View style={{ width: 32, height: 32, borderRadius: 8, backgroundColor: "rgba(52,211,153,0.04)", borderWidth: 1, borderColor: "rgba(52,211,153,0.08)", alignItems: "center", justifyContent: "center" }}>
@@ -876,6 +916,12 @@ function SettingsPage({ onBack }: { onBack: () => void }) {
       {children}
     </View>
   );
+}
+
+function SettingsPage({ onBack }: { onBack: () => void }) {
+  const { width } = useWindowDimensions();
+  const [soundEnabled, setSoundEnabled] = useState(true);
+  const [hapticsEnabled, setHapticsEnabled] = useState(true);
 
   return (
     <View style={{ flex: 1, backgroundColor: T.bg, paddingHorizontal: rs(width, 14), paddingTop: rs(width, 8) }}>
@@ -888,23 +934,23 @@ function SettingsPage({ onBack }: { onBack: () => void }) {
 
       <ScrollView showsVerticalScrollIndicator={false} style={{ flex: 1 }}>
         <View style={{ gap: 8 }}>
-          <SettingRow icon="🔊" title="Sound Effects" subtitle="Card sounds, banners & alerts">
-            <Toggle value={soundEnabled} onToggle={() => setSoundEnabled(!soundEnabled)} />
-          </SettingRow>
-          <SettingRow icon="📳" title="Haptic Feedback" subtitle="Vibration on play & win">
-            <Toggle value={hapticsEnabled} onToggle={() => setHapticsEnabled(!hapticsEnabled)} />
-          </SettingRow>
-          <SettingRow icon="🌙" title="Dark Mode" subtitle="Always on (premium feel)">
+          <SettingsRow icon="🔊" title="Sound Effects" subtitle="Card sounds, banners & alerts">
+            <SettingsToggle value={soundEnabled} onToggle={() => setSoundEnabled(!soundEnabled)} />
+          </SettingsRow>
+          <SettingsRow icon="📳" title="Haptic Feedback" subtitle="Vibration on play & win">
+            <SettingsToggle value={hapticsEnabled} onToggle={() => setHapticsEnabled(!hapticsEnabled)} />
+          </SettingsRow>
+          <SettingsRow icon="🌙" title="Dark Mode" subtitle="Always on (premium feel)">
             <View style={{ backgroundColor: "rgba(52,211,153,0.1)", borderWidth: 1, borderColor: "rgba(52,211,153,0.2)", borderRadius: 8, paddingHorizontal: 10, paddingVertical: 4 }}>
               <Text style={{ color: T.accent, fontSize: fs(width, 8), fontWeight: "900" }}>ON</Text>
             </View>
-          </SettingRow>
-          <SettingRow icon="🎵" title="Background Music" subtitle="Toggle lobby & table music">
-            <Toggle value={false} onToggle={() => {}} />
-          </SettingRow>
-          <SettingRow icon="🔔" title="Notifications" subtitle="Tournament & challenge alerts">
-            <Toggle value={true} onToggle={() => {}} />
-          </SettingRow>
+          </SettingsRow>
+          <SettingsRow icon="🎵" title="Background Music" subtitle="Toggle lobby & table music">
+            <SettingsToggle value={false} onToggle={() => {}} />
+          </SettingsRow>
+          <SettingsRow icon="🔔" title="Notifications" subtitle="Tournament & challenge alerts">
+            <SettingsToggle value={true} onToggle={() => {}} />
+          </SettingsRow>
         </View>
 
         <View style={{ marginTop: rs(width, 16), marginBottom: rs(width, 16) }}>
@@ -926,6 +972,100 @@ function SettingsPage({ onBack }: { onBack: () => void }) {
 }
 
 /* ================================================================
+   PROFILE PAGE
+   ================================================================ */
+
+function ProfilePage({ profile, onSave, onBack }: { profile: Profile; onSave: (p: Profile) => void; onBack: () => void }) {
+  const { width } = useWindowDimensions();
+  const [name, setName] = useState(profile.name);
+  const [avatarId, setAvatarId] = useState(profile.avatarId);
+  const sanitizedName = name.trim();
+  const canSave = sanitizedName.length > 0;
+
+  const save = () => {
+    if (!canSave) return;
+    const updated: Profile = {
+      name: sanitizedName.slice(0, MAX_PROFILE_NAME_LENGTH) || "Player",
+      avatarId: isAvatarId(avatarId) ? avatarId : "1",
+    };
+    saveProfile(updated).then(() => {
+      onSave(updated);
+      onBack();
+    });
+  };
+
+  return (
+    <View style={{ flex: 1, backgroundColor: T.bg, paddingHorizontal: rs(width, 8), paddingTop: rs(width, 6) }}>
+      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: rs(width, 10) }}>
+        <View>
+          <Text style={{ color: T.textDim, fontSize: fs(width, 5), letterSpacing: 2, fontWeight: "900" }}>IDENTITY</Text>
+          <Text style={{ color: T.text, fontSize: fs(width, 12), fontWeight: "900" }}>PROFILE</Text>
+        </View>
+      </View>
+
+      <ScrollView showsVerticalScrollIndicator={false} style={{ flex: 1 }}>
+        {/* Preview */}
+        <View style={{ alignItems: "center", marginBottom: rs(width, 10) }}>
+          <AvatarChip avatarId={avatarId} size={rs(width, 44)} border={T.gold} />
+          <Text style={{ color: T.text, fontSize: fs(width, 12), fontWeight: "900", marginTop: 4 }}>
+            {sanitizedName || "Player"}
+          </Text>
+          <Text style={{ color: T.textDim, fontSize: fs(width, 5), letterSpacing: 1.5, fontWeight: "900", marginTop: 1 }}>
+            SHOWN TO OTHER PLAYERS ON THE TABLE
+          </Text>
+        </View>
+
+        {/* Name input */}
+        <Text style={{ color: T.textDim, fontSize: fs(width, 5.5), letterSpacing: 1.5, fontWeight: "900", marginBottom: 4 }}>DISPLAY NAME</Text>
+        <TextInput
+          value={name}
+          onChangeText={setName}
+          placeholder="Player"
+          placeholderTextColor="#3A6B50"
+          maxLength={MAX_PROFILE_NAME_LENGTH}
+          style={{ height: 34, borderWidth: 1, borderColor: T.accent, borderRadius: 6, backgroundColor: T.surface, color: T.text, fontSize: 12, paddingHorizontal: 10, fontWeight: "700" }}
+        />
+        <Text style={{ color: T.textDim, fontSize: fs(width, 5), textAlign: "right", marginTop: 2, marginBottom: 8 }}>
+          {sanitizedName.length}/{MAX_PROFILE_NAME_LENGTH}
+        </Text>
+
+        {/* Avatar grid */}
+        <Text style={{ color: T.textDim, fontSize: fs(width, 5.5), letterSpacing: 1.5, fontWeight: "900", marginBottom: 6 }}>CHOOSE AVATAR</Text>
+        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: rs(width, 8), marginBottom: 10 }}>
+          {AVATAR_IDS.map((id) => {
+            const selected = id === avatarId;
+            return (
+              <Pressable
+                key={id}
+                onPress={() => setAvatarId(id)}
+                style={{ padding: 2, borderRadius: 999, borderWidth: 2, borderColor: selected ? T.gold : "transparent" }}
+              >
+                <AvatarChip avatarId={id} size={rs(width, 34)} border={selected ? T.gold : "rgba(232,245,238,0.15)"} />
+              </Pressable>
+            );
+          })}
+        </View>
+
+        {/* Save */}
+        <Pressable
+          onPress={save}
+          disabled={!canSave}
+          style={{ backgroundColor: canSave ? T.gold : "rgba(232,245,238,0.06)", borderRadius: 8, paddingVertical: 8, alignItems: "center", borderWidth: 1, borderColor: canSave ? "rgba(212,168,67,0.4)" : "rgba(232,245,238,0.06)" }}
+        >
+          <Text style={{ color: canSave ? T.bg : T.textDim, fontSize: fs(width, 9), fontWeight: "900", letterSpacing: 1 }}>
+            SAVE PROFILE
+          </Text>
+        </Pressable>
+      </ScrollView>
+
+      <Pressable onPress={onBack} style={{ position: "absolute", bottom: 8, left: 8, paddingVertical: 6, paddingHorizontal: 10, borderRadius: 6, backgroundColor: "rgba(52,211,153,0.08)", borderWidth: 1, borderColor: "rgba(52,211,153,0.15)" }}>
+        <Text style={{ color: T.accent, fontSize: 10, fontWeight: "900" }}>← BACK</Text>
+      </Pressable>
+    </View>
+  );
+}
+
+/* ================================================================
    STATS PAGE
    ================================================================ */
 
@@ -940,7 +1080,7 @@ function StatsPage({
   coinBalance: number;
   onBack: () => void;
 }) {
-  const { width } = useWindowDimensions();
+  useWindowDimensions();
   const winRate = stats.gamesPlayed > 0
     ? Math.round((stats.gamesWon / stats.gamesPlayed) * 100)
     : 0;
@@ -1094,7 +1234,7 @@ function HowToPlayPage({ onBack }: { onBack: () => void }) {
         <View style={{ backgroundColor: "rgba(52,211,153,0.04)", borderWidth: 1, borderColor: "rgba(52,211,153,0.08)", borderRadius: 12, padding: rs(width, 14), marginBottom: 20 }}>
           <Text style={{ color: T.accent, fontSize: fs(width, 9), fontWeight: "900", marginBottom: 6 }}>💡 STRATEGY</Text>
           <Text style={{ color: T.textMuted, fontSize: fs(width, 8), lineHeight: 16 }}>
-            • Count cards as they're played to know what's left{"\n"}
+            • Count cards while they are played to know what is left{"\n"}
             • Lead with high cards early to force Thullas{"\n"}
             • Hold wild cards for critical moments{"\n"}
             • Watch which suits are exhausted — those are safe exits
@@ -1125,7 +1265,7 @@ function BettingPage({
   onConfirm: () => void;
   onBack: () => void;
 }) {
-  const { width } = useWindowDimensions();
+  useWindowDimensions();
   const presets = [1000, 2500, 5000, 10000];
   const canBet = coinBalance >= currentBet && currentBet >= MIN_BET;
 
@@ -1247,6 +1387,7 @@ function BettingPage({
 type RoomPlayer = {
   id: string;
   displayName: string;
+  avatarId: string;
   isHost: boolean;
   status: string;
 };
@@ -1255,6 +1396,7 @@ type NetworkInfo = {
   roomId: string;
   playerId: string;
   displayName: string;
+  avatarId: string;
   seatIndex: number;
   playerCount: number;
   gameId: string;
@@ -1263,22 +1405,24 @@ type NetworkInfo = {
 };
 
 function FriendsLobby({
+  profile,
   onMatchStart,
   onBack,
 }: {
+  profile: Profile;
   onMatchStart: (network: NetworkInfo) => void;
   onBack: () => void;
 }) {
-  const { width } = useWindowDimensions();
+  useWindowDimensions();
   const [view, setView] = useState<"choose" | "create" | "join" | "waiting">("choose");
   const [maxPlayers, setMaxPlayers] = useState(4);
   const [roomId, setRoomId] = useState("");
   const [code, setCode] = useState("");
   const [roomCode, setRoomCode] = useState("");
   const [players, setPlayers] = useState<RoomPlayer[]>([]);
-  const [name] = useState("Player");
   const [error, setError] = useState("");
-  const socket = useRef<Socket | null>(null);
+  const [socket, setSocket] = useState<Socket | null>(null);
+  const [matchStarting, setMatchStarting] = useState(false);
   const matchStartingRef = useRef(false);
   const [playerId] = useState(
     () => `player_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
@@ -1293,15 +1437,19 @@ function FriendsLobby({
 
   useEffect(
     () => () => {
-      if (!matchStartingRef.current) socket.current?.disconnect();
+      if (!matchStartingRef.current) socket?.disconnect();
     },
-    [],
+    [socket],
   );
+
+  useEffect(() => {
+    if (matchStarting) matchStartingRef.current = true;
+  }, [matchStarting]);
 
   const connect = (callback: (connection: Socket) => void) => {
     setError("");
-    if (socket.current?.connected) {
-      callback(socket.current);
+    if (socket?.connected) {
+      callback(socket);
       return;
     }
     const connection = io(serverUrl, {
@@ -1311,7 +1459,7 @@ function FriendsLobby({
       reconnectionDelay: 1000,
       timeout: 8000,
     });
-    socket.current = connection;
+    setSocket(connection);
 
     const connectTimeout = setTimeout(() => {
       if (!connection.connected) {
@@ -1325,11 +1473,12 @@ function FriendsLobby({
     connection.on("room_updated", ({ room }) => { setRoomId(room.id); setRoomCode(room.inviteCode); setMaxPlayers(room.settings.maxPlayers); setPlayers(room.players); setView("waiting"); });
     connection.on("join_success", ({ room }) => { setRoomId(room.id); setRoomCode(room.inviteCode); setMaxPlayers(room.settings.maxPlayers); setPlayers(room.players); setView("waiting"); });
     connection.on("match_started", ({ roomId, playerCount, gameId, gameState, seatIndexByPlayerId }) => {
-      matchStartingRef.current = true;
+      setMatchStarting(true);
       onMatchStart({
         roomId,
         playerId,
-        displayName: name,
+        displayName: profile.name,
+        avatarId: profile.avatarId,
         seatIndex: seatIndexByPlayerId?.[playerId] ?? 0,
         playerCount: playerCount ?? 4,
         gameId,
@@ -1342,13 +1491,13 @@ function FriendsLobby({
 
   const createRoom = () => {
     setError("");
-    connect((connection) => connection.emit("join_room", { roomId: `room_${playerId}`, playerId, displayName: name, settings: { maxPlayers } }));
+    connect((connection) => connection.emit("join_room", { roomId: `room_${playerId}`, playerId, displayName: profile.name, avatarId: profile.avatarId, settings: { maxPlayers } }));
   };
 
   const joinRoom = () => {
     setError("");
     connect((connection) => {
-      connection.once("found_room", ({ roomId }) => connection.emit("join_room", { roomId, playerId, displayName: name }));
+      connection.once("found_room", ({ roomId }) => connection.emit("join_room", { roomId, playerId, displayName: profile.name, avatarId: profile.avatarId }));
       connection.emit("join_by_code", { code: code.trim().toUpperCase(), playerId });
     });
   };
@@ -1467,9 +1616,7 @@ function FriendsLobby({
       <View style={{ marginTop: 6, gap: 4 }}>
         {players.map((player) => (
           <View key={player.id} style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: 10, paddingVertical: 6, borderRadius: 6, backgroundColor: "rgba(232,245,238,0.06)" }}>
-            <View style={{ width: 22, height: 22, borderRadius: 999, backgroundColor: T.accent, alignItems: "center", justifyContent: "center" }}>
-              <Text style={{ color: T.bg, fontWeight: "900", fontSize: 9 }}>{player.displayName[0]?.toUpperCase()}</Text>
-            </View>
+            <AvatarChip avatarId={player.avatarId} size={22} label={player.displayName} />
             <Text style={{ color: T.text, fontSize: 10, fontWeight: "800", marginLeft: 8 }}>
               {player.displayName}{player.isHost ? " · HOST" : ""}
             </Text>
@@ -1484,10 +1631,261 @@ function FriendsLobby({
           </View>
         ))}
       </View>
-      {goldBtn(() => socket.current?.emit("start_match", { roomId }), !isHost ? "WAITING FOR HOST TO START" : players.length < 2 ? "WAITING FOR PLAYERS" : "START MATCH →", !isHost || players.length < 2 || !roomId)}
+      {goldBtn(() => socket?.emit("start_match", { roomId }), !isHost ? "WAITING FOR HOST TO START" : players.length < 2 ? "WAITING FOR PLAYERS" : "START MATCH →", !isHost || players.length < 2 || !roomId)}
       {error ? <Text style={{ color: T.coral, fontSize: 9, marginTop: 8 }}>{error}</Text> : null}
     </>
   ));
+}
+
+/* ================================================================
+   ONLINE PAGE – Quick Match hub
+   ================================================================ */
+
+function OnlinePage({
+  profile,
+  onMatchStart,
+  onSwitchToPrivate,
+  onBack,
+}: {
+  profile: Profile;
+  onMatchStart: (network: NetworkInfo) => void;
+  onSwitchToPrivate: () => void;
+  onBack: () => void;
+}) {
+  const [maxPlayers, setMaxPlayers] = useState(4);
+  const [matching, setMatching] = useState(false);
+  const [joined, setJoined] = useState<{ roomId: string; roomCode: string; players: RoomPlayer[] } | null>(null);
+  const [onlineCount, setOnlineCount] = useState(0);
+  const [error, setError] = useState("");
+  const socket = useRef<Socket | null>(null);
+  const matchStartingRef = useRef(false);
+  const [playerId] = useState(
+    () => `player_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+  );
+
+  // Eager connection: gives us the live "players online" pill on the header.
+  useEffect(() => {
+    const connection = io(resolveServerUrl(), {
+      transports: ["websocket"],
+      reconnection: true,
+      reconnectionAttempts: 5,
+      reconnectionDelay: 1000,
+      timeout: 8000,
+    });
+    socket.current = connection;
+
+    const connectTimeout = setTimeout(() => {
+      if (!connection.connected) {
+        connection.disconnect();
+        setError("Cannot reach the server. Make sure the server is running.");
+      }
+    }, 10000);
+
+    connection.on("connect", () => clearTimeout(connectTimeout));
+    connection.on("online_players", ({ count }) => setOnlineCount(count));
+    connection.on("connect_error", () => {
+      clearTimeout(connectTimeout);
+      setError("Connection failed. Check your network and try again.");
+    });
+
+    return () => {
+      if (!matchStartingRef.current) connection.disconnect();
+    };
+  }, []);
+
+  const emitQuickMatch = (payload: unknown) => {
+    const attach = () => {
+      const connection = socket.current;
+      if (!connection || connection.hasListeners("matchmaking_joined")) return;
+      connection.on("matchmaking_joined", ({ room }) => {
+        setMatching(false);
+        setJoined({ roomId: room.id, roomCode: room.inviteCode, players: room.players });
+      });
+      connection.on("room_updated", ({ room }) => {
+        setJoined((prev) => (prev ? { ...prev, roomId: room.id, roomCode: room.inviteCode, players: room.players } : prev));
+      });
+      connection.on("match_started", ({ roomId, playerCount, gameId, gameState, seatIndexByPlayerId }) => {
+        matchStartingRef.current = true;
+        onMatchStart({
+          roomId,
+          playerId,
+          displayName: profile.name,
+          avatarId: profile.avatarId,
+          seatIndex: seatIndexByPlayerId?.[playerId] ?? 0,
+          playerCount: playerCount ?? maxPlayers,
+          gameId,
+          gameState,
+          socket: connection,
+        });
+      });
+      connection.on("error", ({ code, message }) => setError(code === "ROOM_FULL" ? "This table is full." : code === "MATCH_IN_PROGRESS" ? "A match is already running at this table." : code === "INVALID_CODE" ? "Room code not found." : code === "NOT_HOST" ? "Only the host can start the match." : code === "NOT_ENOUGH_PLAYERS" ? "Need at least 2 players to start." : code === "GAME_NOT_RUNNING" ? "No match is running here." : code === "NOT_IN_ROOM" ? "You are not at this table." : code === "INVALID_MOVE" ? (message || "That move is not allowed.") : "Unable to join this table."));
+      connection.emit("quick_match", payload);
+    };
+    if (socket.current?.connected) attach();
+    else socket.current?.once("connect", attach);
+  };
+
+  const findTable = () => {
+    setError("");
+    setMatching(true);
+    emitQuickMatch({ playerId, displayName: profile.name, avatarId: profile.avatarId, maxPlayers });
+  };
+
+  const cancelSearch = () => {
+    socket.current?.emit("leave_matchmaking");
+    setMatching(false);
+    setJoined(null);
+  };
+
+  const leaveTable = () => {
+    socket.current?.disconnect();
+    onBack();
+  };
+
+  const shell = (children: ReactNode) => (
+    <View style={{ flex: 1, backgroundColor: T.bg }}>
+      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 12, paddingVertical: 6, backgroundColor: T.surface, borderBottomWidth: 1, borderBottomColor: T.border }}>
+        <Text style={{ color: T.text, fontSize: 11, fontWeight: "900", letterSpacing: 2 }}>GET AWAY THULLA</Text>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: "rgba(52,211,153,0.1)", borderRadius: 999, paddingHorizontal: 8, paddingVertical: 3, borderWidth: 1, borderColor: "rgba(52,211,153,0.25)" }}>
+            <Text style={{ fontSize: 9 }}>👥</Text>
+            <Text style={{ color: T.accent, fontSize: 9, fontWeight: "900" }}>{onlineCount || "…"}</Text>
+          </View>
+          <Text style={{ color: T.accent, fontSize: 8, letterSpacing: 2, fontWeight: "900" }}>ONLINE</Text>
+        </View>
+      </View>
+      <View style={{ flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 16 }}>
+        <View style={{ width: "100%", maxWidth: 500 }}>{children}</View>
+      </View>
+      <Pressable onPress={onBack} style={{ position: "absolute", bottom: 12, left: 12, paddingVertical: 8, paddingHorizontal: 14, borderRadius: 8, backgroundColor: "rgba(52,211,153,0.08)", borderWidth: 1, borderColor: "rgba(52,211,153,0.15)" }}>
+        <Text style={{ color: T.accent, fontSize: 12, fontWeight: "900" }}>← BACK</Text>
+      </Pressable>
+    </View>
+  );
+
+  // Joined a table via quick match
+  if (joined) {
+    const isHost = joined.players.find((p) => p.id === playerId)?.isHost ?? false;
+    return shell(
+      <>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+          <View style={{ width: 30, height: 30, borderRadius: 999, backgroundColor: "rgba(52,211,153,0.12)", borderWidth: 1, borderColor: "rgba(52,211,153,0.3)", alignItems: "center", justifyContent: "center" }}>
+            <Text style={{ fontSize: 14 }}>🌐</Text>
+          </View>
+          <View>
+            <Text style={{ color: T.text, fontSize: 16, fontWeight: "900" }}>QUICK TABLE</Text>
+            <Text style={{ color: T.textDim, fontSize: 8, letterSpacing: 2, fontWeight: "900" }}>ONLINE MATCH LOBBY</Text>
+          </View>
+        </View>
+
+        <View style={{ backgroundColor: T.accent, borderRadius: 10, borderWidth: 1, borderColor: T.accent, padding: 12, marginTop: 14, alignSelf: "stretch" }}>
+          <Text style={{ color: T.textMuted, fontSize: 7, letterSpacing: 2, fontWeight: "900" }}>TABLE CODE</Text>
+          <Text style={{ color: T.bg, fontSize: 20, letterSpacing: 3, fontWeight: "900", marginTop: 2 }}>{joined.roomCode || "------"}</Text>
+          <Text style={{ color: "rgba(255,255,255,0.7)", fontSize: 8, marginTop: 2 }}>
+            Friends can join with this code from PLAY WITH FRIENDS
+          </Text>
+        </View>
+
+        <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 12 }}>
+          <Text style={{ color: T.textMuted, fontSize: 8, letterSpacing: 2, fontWeight: "900" }}>PLAYERS JOINED</Text>
+          <Text style={{ color: T.gold, fontSize: 12, fontWeight: "900" }}>{joined.players.length} / {maxPlayers}</Text>
+        </View>
+        <View style={{ marginTop: 6, gap: 4 }}>
+          {joined.players.map((player) => (
+            <View key={player.id} style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: 10, paddingVertical: 6, borderRadius: 6, backgroundColor: "rgba(232,245,238,0.06)" }}>
+              <AvatarChip avatarId={player.avatarId} size={22} label={player.displayName} />
+              <Text style={{ color: T.text, fontSize: 10, fontWeight: "800", marginLeft: 8 }}>
+                {player.displayName}{player.isHost ? " · HOST" : ""}
+              </Text>
+              <Text style={{ color: T.accent, fontSize: 8, fontWeight: "900", marginLeft: "auto" }}>
+                {player.status === "active" ? "READY" : "JOINED"}
+              </Text>
+            </View>
+          ))}
+          {Array.from({ length: Math.max(0, maxPlayers - joined.players.length) }).map((_, i) => (
+            <View key={`empty-${i}`} style={{ paddingVertical: 8, borderWidth: 1, borderStyle: "dashed", borderColor: "rgba(232,245,238,0.1)", borderRadius: 6, alignItems: "center" }}>
+              <Text style={{ color: T.textDim, fontSize: 8, fontWeight: "900" }}>WAITING FOR PLAYER {joined.players.length + i + 1}</Text>
+            </View>
+          ))}
+        </View>
+
+        <View style={{ flexDirection: "row", gap: 10, marginTop: 14, alignItems: "center" }}>
+          <Pressable
+            disabled={!isHost || joined.players.length < 2}
+            onPress={() => socket.current?.emit("start_match", { roomId: joined.roomId })}
+            style={{ flex: 1, backgroundColor: T.accent, borderRadius: 10, paddingVertical: 12, alignItems: "center", opacity: (!isHost || joined.players.length < 2) ? 0.45 : 1 }}
+          >
+            <Text style={{ color: T.bg, fontSize: 11, fontWeight: "900", letterSpacing: 1 }}>
+              {!isHost ? "WAITING FOR HOST TO START" : joined.players.length < 2 ? "WAITING FOR PLAYERS" : "START MATCH →"}
+            </Text>
+          </Pressable>
+          <Pressable onPress={leaveTable} style={{ backgroundColor: "rgba(232,96,90,0.12)", borderWidth: 1, borderColor: "rgba(232,96,90,0.25)", borderRadius: 10, paddingVertical: 12, paddingHorizontal: 14 }}>
+            <Text style={{ color: T.coral, fontSize: 11, fontWeight: "900" }}>✕ LEAVE</Text>
+          </Pressable>
+        </View>
+        {error ? <Text style={{ color: T.coral, fontSize: 9, marginTop: 8 }}>{error}</Text> : null}
+      </>,
+    );
+  }
+
+  // Searching
+  if (matching) {
+    return shell(
+      <View style={{ alignItems: "center", paddingVertical: 24 }}>
+        <View style={{ width: 44, height: 44, borderRadius: 999, backgroundColor: "rgba(52,211,153,0.1)", borderWidth: 1, borderColor: "rgba(52,211,153,0.3)", alignItems: "center", justifyContent: "center" }}>
+          <Text style={{ fontSize: 20 }}>🔍</Text>
+        </View>
+        <Text style={{ color: T.text, fontSize: 15, fontWeight: "900", marginTop: 14 }}>FINDING A TABLE…</Text>
+        <Text style={{ color: T.textMuted, fontSize: 9, marginTop: 6, textAlign: "center" }}>
+          {maxPlayers}-player online match. We are looking for open seats just for you.
+        </Text>
+        <Pressable onPress={cancelSearch} style={{ marginTop: 20, backgroundColor: "rgba(232,96,90,0.12)", borderWidth: 1, borderColor: "rgba(232,96,90,0.25)", borderRadius: 10, paddingVertical: 10, paddingHorizontal: 24 }}>
+          <Text style={{ color: T.coral, fontSize: 11, fontWeight: "900" }}>CANCEL SEARCH</Text>
+        </Pressable>
+        {error ? <Text style={{ color: T.coral, fontSize: 9, marginTop: 8 }}>{error}</Text> : null}
+      </View>,
+    );
+  }
+
+  return shell(
+    <>
+      <Text style={{ color: T.text, fontSize: 16, fontWeight: "900" }}>PLAY ONLINE</Text>
+      <Text style={{ color: T.textMuted, fontSize: 8, letterSpacing: 2, fontWeight: "900", marginTop: 4 }}>
+        {onlineCount ? `${onlineCount} PLAYERS ONLINE NOW` : "QUICK MATCH AGAINST REAL PLAYERS"}
+      </Text>
+
+      <Text style={{ color: T.textMuted, fontSize: 8, letterSpacing: 2, fontWeight: "900", marginTop: 16 }}>
+        TABLE SIZE
+      </Text>
+      <View style={{ flexDirection: "row", gap: 6, marginTop: 8 }}>
+        {[2, 3, 4, 5, 6].map((count) => (
+          <AnimatedPressable
+            key={count}
+            onPress={() => setMaxPlayers(count)}
+            style={{ width: 52, height: 56, borderRadius: 8, borderWidth: 1, alignItems: "center", justifyContent: "center", backgroundColor: count === maxPlayers ? T.accent : T.surface, borderColor: count === maxPlayers ? T.accent : "rgba(232,245,238,0.2)" }}
+          >
+            <Text style={{ color: count === maxPlayers ? T.bg : T.text, fontSize: 16, fontWeight: "900" }}>{count}</Text>
+            <Text style={{ color: count === maxPlayers ? T.bg : T.textMuted, fontSize: 5, fontWeight: "900", marginTop: 1 }}>PLAYERS</Text>
+          </AnimatedPressable>
+        ))}
+      </View>
+
+      <AnimatedPressable
+        onPress={findTable}
+        style={{ marginTop: 18, backgroundColor: T.accent, borderRadius: 12, paddingVertical: 14, alignItems: "center", shadowColor: T.accent, shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.25, shadowRadius: 18, elevation: 8 }}
+      >
+        <Text style={{ color: T.bg, fontSize: 12, fontWeight: "900", letterSpacing: 1 }}>FIND A TABLE →</Text>
+      </AnimatedPressable>
+
+      <Pressable onPress={onSwitchToPrivate} style={{ alignSelf: "center", marginTop: 16, paddingVertical: 6 }}>
+        <Text style={{ color: T.textMuted, fontSize: 9, fontWeight: "900", letterSpacing: 1 }}>
+          Prefer a private table? <Text style={{ color: T.gold }}>PLAY WITH FRIENDS →</Text>
+        </Text>
+      </Pressable>
+
+      {error ? <Text style={{ color: T.coral, fontSize: 9, marginTop: 10, textAlign: "center" }}>{error}</Text> : null}
+    </>,
+  );
 }
 
 /* ================================================================
@@ -1500,6 +1898,7 @@ function GameView({
   currentBet,
   coinBalance,
   network,
+  profile,
   onLeave,
   onWin,
   onStatsUpdate,
@@ -1509,20 +1908,24 @@ function GameView({
   currentBet: number;
   coinBalance: number;
   network: NetworkInfo | null;
+  profile: Profile;
   onLeave: () => void;
   onWin: (amount: number) => void;
   onStatsUpdate: (stats: FeedbackStats) => void;
 }) {
+  const soloProfile = useMemo(() => ({ name: profile.name, avatarId: profile.avatarId }), [profile]);
   const { width, height } = useWindowDimensions();
   const humanId = network ? `player-${network.seatIndex}` : "player-0";
-  const [gameState, setGameState] = useState<GameState>(() => network?.gameState ?? createGame(playerCount));
+  const [gameState, setGameState] = useState<GameState>(() => network?.gameState ?? createGame(playerCount, soloProfile));
   const [showLeaveConfirm, setShowLeaveConfirm] = useState(false);
+  const [matchOverVisible, setMatchOverVisible] = useState(false);
   const [banner, setBanner] = useState<{ text: string; type: "thulla" | "safe" | "loser" | "info" } | null>(null);
   const bannerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const cpuTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const autoPlayTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastMessageRef = useRef<string>("");
   const lastSafeRef = useRef<boolean>(false);
+  const lastBackPressRef = useRef(0);
 
   useEffect(() => {
     return () => {
@@ -1532,34 +1935,43 @@ function GameView({
     };
   }, []);
 
-  // Networked games are server-authoritative: mirror whatever state the server broadcasts.
-  useEffect(() => {
-    if (network?.gameState) setGameState(network.gameState);
-  }, [network?.gameState]);
-
-  // Fresh round (solo restart or networked game_restarted) → clear round-scoped UI state.
+  // Networked games are server-authoritative: mirror broadcast state and reset round-scoped UI on restart.
   useEffect(() => {
     if (!network) return;
-    lastMessageRef.current = "";
-    lastSafeRef.current = false;
-    setBanner(null);
-  }, [network?.gameId]);
+    const socket = network.socket;
+    const onUpdate = ({ gameState }: { gameState: GameState }) => setGameState(gameState);
+    const onRestarted = ({ gameState }: { gameState: GameState }) => {
+      setGameState(gameState);
+      setBanner(null);
+      lastMessageRef.current = "";
+      lastSafeRef.current = false;
+    };
+    socket.on("game_update", onUpdate);
+    socket.on("game_restarted", onRestarted);
+    return () => {
+      socket.off("game_update", onUpdate);
+      socket.off("game_restarted", onRestarted);
+    };
+  }, [network]);
+
+  // Show the round-over dialog shortly after the loser banner, and dismiss it on a new round.
+  useEffect(() => {
+    if (gameState.phase !== "finished") {
+      const dismissTimer = setTimeout(() => setMatchOverVisible(false), 0);
+      return () => clearTimeout(dismissTimer);
+    }
+    const timer = setTimeout(() => setMatchOverVisible(true), 1200);
+    return () => clearTimeout(timer);
+  }, [gameState.phase]);
 
   const { playCardPlay, playTrickWon, playSafe, playLoser, playTurnChange, playGameOver, playButtonPress } = useSound();
 
   const humanPlayer = getHumanPlayer(gameState, humanId);
-  const humanHand = humanPlayer?.hand ?? [];
+  const humanHand = sortHand(humanPlayer?.hand ?? []);
   const playableIds = getHumanPlayableIds(gameState, humanId);
   const ledSuit = getLedSuit(gameState);
   const isHumanTurn = gameState.currentPlayerId === humanId && gameState.phase === "playing";
-  const isFinished = gameState.phase === "finished";
   const activePlayerCount = gameState.activePlayerIds.length;
-
-  const gameMenuItems: MenuItem[] = [
-    { label: "Settings", icon: "⚙️", onPress: () => {} },
-    { label: "How to Play", icon: "📖", onPress: () => {} },
-    { label: "Leave Table", icon: "🚪", onPress: () => setShowLeaveConfirm(true), destructive: true },
-  ];
 
   const showBanner = useCallback(
     (text: string, type: "thulla" | "safe" | "loser" | "info") => {
@@ -1569,6 +1981,32 @@ function GameView({
     },
     [],
   );
+
+  // Android hardware BACK: never exit the app mid-match.
+  // First press shows a hint; pressing again within 3s opens the leave-warning dialog.
+  useEffect(() => {
+    if (Platform.OS !== "android") return undefined;
+    const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+      if (showLeaveConfirm) {
+        setShowLeaveConfirm(false);
+        return true;
+      }
+      if (matchOverVisible) {
+        setMatchOverVisible(false);
+        return true;
+      }
+      const now = Date.now();
+      if (now - lastBackPressRef.current < 3000) {
+        lastBackPressRef.current = 0;
+        setShowLeaveConfirm(true);
+      } else {
+        lastBackPressRef.current = now;
+        showBanner("Press BACK again to leave the table", "info");
+      }
+      return true;
+    });
+    return () => sub.remove();
+  }, [showLeaveConfirm, matchOverVisible, showBanner]);
 
   useEffect(() => {
     if (gameState.phase === "finished" && gameState.loserId) {
@@ -1589,7 +2027,7 @@ function GameView({
       playSafe();
       incrementStats({ safeCount: 1 }).then((updated) => onStatsUpdate(updated));
     }
-  }, [gameState.phase]);
+  }, [gameState.phase, gameState.loserId, gameState.players, humanId, onStatsUpdate, onWin, currentBet, showBanner, playLoser, playGameOver, playSafe]);
 
   useEffect(() => {
     if (gameState.message.includes("Thulla") && lastMessageRef.current !== gameState.message) {
@@ -1598,7 +2036,7 @@ function GameView({
       playTrickWon();
       incrementStats({ thullaCount: 1 }).then((updated) => onStatsUpdate(updated));
     }
-  }, [gameState.message]);
+  }, [gameState.message, showBanner, playTrickWon, onStatsUpdate]);
 
   const lastPlayerIdRef = useRef<string>(gameState.currentPlayerId);
 
@@ -1608,7 +2046,7 @@ function GameView({
     if (gameState.phase === "playing" && gameState.currentPlayerId === humanId && prevId !== humanId && gameState.trick.length > 0) {
       playTurnChange();
     }
-  }, [gameState.currentPlayerId, gameState.phase, gameState.trick.length, playTurnChange]);
+  }, [gameState.currentPlayerId, gameState.phase, gameState.trick.length, humanId, playTurnChange]);
 
   useEffect(() => {
     if (network) return;
@@ -1631,7 +2069,9 @@ function GameView({
             if (prev.phase !== "playing" || prev.currentPlayerId !== humanId) return prev;
             const hp = prev.players.find((p) => p.id === humanId);
             if (!hp) return prev;
-            const options = playableCards(hp, prev.trick);
+            const options = Array.from(getHumanPlayableIds(prev, humanId))
+              .map((id) => hp.hand.find((c) => c.id === id))
+              .filter((c): c is GameCard => c !== undefined);
             if (!options.length) return prev;
             const card = options[Math.floor(Math.random() * options.length)];
             return enginePlay(prev, humanId, card.id).state;
@@ -1669,45 +2109,63 @@ function GameView({
       network.socket.emit("restart_match", { roomId: network.roomId });
       return;
     }
-    setGameState(createGame(playerCount));
+    setGameState(createGame(playerCount, soloProfile));
     setBanner(null);
     lastMessageRef.current = "";
     lastSafeRef.current = false;
-  }, [playerCount, playButtonPress, network]);
+  }, [playerCount, playButtonPress, network, soloProfile]);
 
   const getPlayerPositions = () => {
-    const positions: Array<{ id: string; name: string; x: number; y: number; isHuman: boolean; cardCount: number; safe: boolean }> = [];
-    const cx = width / 2;
-    const cy = height / 2 - 10;
-    const rx = width * 0.35;
-    const ry = height * 0.28;
+    const positions: { id: string; name: string; avatarId?: string; x: number; y: number; isHuman: boolean; cardCount: number; safe: boolean }[] = [];
+    // Guide opponents to the table corners/edges so the center stays open for the trick.
+    const opponentSlots: Record<number, { x: number; y: number }[]> = {
+      1: [{ x: width * 0.84, y: height * 0.14 }],
+      2: [
+        { x: width * 0.16, y: height * 0.14 },
+        { x: width * 0.84, y: height * 0.14 },
+      ],
+      3: [
+        { x: width * 0.16, y: height * 0.14 },
+        { x: width * 0.50, y: height * 0.12 },
+        { x: width * 0.84, y: height * 0.14 },
+      ],
+      4: [
+        { x: width * 0.16, y: height * 0.14 },
+        { x: width * 0.84, y: height * 0.14 },
+        { x: width * 0.17, y: height * 0.62 },
+        { x: width * 0.83, y: height * 0.62 },
+      ],
+      5: [
+        { x: width * 0.16, y: height * 0.14 },
+        { x: width * 0.84, y: height * 0.14 },
+        { x: width * 0.50, y: height * 0.10 },
+        { x: width * 0.17, y: height * 0.62 },
+        { x: width * 0.83, y: height * 0.62 },
+      ],
+    };
 
-    gameState.players.forEach((player, index) => {
+    gameState.players.forEach((player) => {
       const isHuman = player.id === humanId;
-      let x: number;
-      let y: number;
-      if (isHuman) {
-        x = cx;
-        y = height - 10;
-      } else {
+      let x = width / 2;
+      let y = height - 10;
+      if (!isHuman) {
         const otherPlayers = gameState.players.filter((p) => p.id !== humanId);
         const otherIndex = otherPlayers.indexOf(player);
         const totalOthers = otherPlayers.length;
-        const startAngle = -Math.PI * 0.8;
-        const endAngle = -Math.PI * 0.2;
-        const angle = totalOthers === 1 ? -Math.PI / 2 : startAngle + (endAngle - startAngle) * (otherIndex / (totalOthers - 1));
-        x = cx + Math.cos(angle) * rx;
-        y = cy + Math.sin(angle) * ry;
+        const slot = (opponentSlots[totalOthers] ?? opponentSlots[1])[otherIndex];
+        if (slot) {
+          x = slot.x;
+          y = slot.y;
+        }
       }
-      positions.push({ id: player.id, name: player.name, x, y, isHuman, cardCount: player.hand.length, safe: player.safe });
+      positions.push({ id: player.id, name: player.name, avatarId: player.avatarId, x, y, isHuman, cardCount: player.hand.length, safe: player.safe });
     });
     return positions;
   };
 
   const playerPositions = getPlayerPositions();
   const cpuPositions = playerPositions.filter((p) => !p.isHuman);
-  const humanPosition = playerPositions.find((p) => p.isHuman);
-  const smallCardWidth = cardWidth * 0.85;
+  const smallCardWidth = cardWidth * 1.15;
 
   return (
     <View style={{ flex: 1, backgroundColor: T.bg }}>
@@ -1747,9 +2205,16 @@ function GameView({
           <View style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, borderWidth: 1, borderColor: "rgba(52,211,153,0.06)", margin: 12 }} />
           <View style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, borderWidth: 1, borderColor: "rgba(52,211,153,0.03)", margin: 24 }} />
 
-          {/* CPU Players - distributed across top */}
+          {/* Opponent badges - distributed across the table */}
           {cpuPositions.map((pos) => (
-            <PlayerBadge key={pos.id} name={pos.name} cardCount={pos.cardCount} isActive={gameState.currentPlayerId === pos.id} safe={pos.safe} x={pos.x - 28} y={Math.max(8, pos.y - 10)} small />
+            <PlayerBadge key={pos.id} name={pos.name} avatarId={pos.avatarId} cardCount={pos.cardCount} isActive={gameState.currentPlayerId === pos.id} safe={pos.safe} x={pos.x - 28} y={Math.max(8, pos.y - 10)} small />
+          ))}
+
+          {/* Your badge - name + avatar on the table */}
+          {playerPositions.filter((p) => p.isHuman).map((pos) => (
+            <View key={pos.id} style={{ position: "absolute", left: width / 2 - 34, bottom: 36 }}>
+              <PlayerBadge name={pos.name} avatarId={pos.avatarId} cardCount={pos.cardCount} isActive={gameState.currentPlayerId === pos.id} safe={pos.safe} x={0} y={0} small />
+            </View>
           ))}
 
           {/* Center trick cards */}
@@ -1758,7 +2223,7 @@ function GameView({
             if (!playerPos) return null;
             const isHuman = play.playerId === humanId;
             const cardX = width / 2 - smallCardWidth / 2 + (gameState.trick.indexOf(play) - gameState.trick.length / 2) * (smallCardWidth + 4);
-            const cardY = isHuman ? height * 0.30 : height * 0.22;
+            const cardY = isHuman ? height * 0.30 : height * 0.24;
             return (
               <Animated.View key={`${play.playerId}-${play.card.id}`} entering={FadeIn.duration(300)} layout={Layout.springify()} style={{ position: "absolute", left: cardX, top: cardY }}>
                 <MiniCard card={play.card} width={smallCardWidth} playerName={gameState.players.find((p) => p.id === play.playerId)?.name ?? "?"} />
@@ -1806,9 +2271,7 @@ function GameView({
         {/* Player info bar */}
         <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 10, paddingVertical: 2, borderBottomWidth: 1, borderBottomColor: "rgba(232,245,238,0.04)" }}>
           <View style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
-            <View style={{ width: 18, height: 18, borderRadius: 999, backgroundColor: T.accent, alignItems: "center", justifyContent: "center" }}>
-              <Text style={{ color: T.bg, fontSize: 6, fontWeight: "900" }}>YOU</Text>
-            </View>
+            <AvatarChip avatarId={humanPlayer?.avatarId} size={20} label={humanPlayer?.name} />
             <Text style={{ color: T.text, fontSize: 8, fontWeight: "900" }}>{humanPlayer?.name ?? "YOU"}</Text>
             <Text style={{ color: T.textDim, fontSize: 7, fontWeight: "800" }}>
               {humanHand.length} cards{humanPlayer?.safe ? " · SAFE ✓" : ""}
@@ -1889,6 +2352,50 @@ function GameView({
         </Animated.View>
       )}
 
+      {/* Round Over Dialog */}
+      <Modal visible={matchOverVisible} transparent animationType="fade">
+        <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.65)", alignItems: "center", justifyContent: "center", paddingHorizontal: 32 }}>
+          <View style={{ backgroundColor: T.surface, borderWidth: 1, borderColor: "rgba(232,245,238,0.1)", borderRadius: 16, padding: 24, width: "100%", maxWidth: 400, alignItems: "center", shadowColor: "#000", shadowOffset: { width: 0, height: 12 }, shadowOpacity: 0.5, shadowRadius: 24, elevation: 24 }}>
+            <View style={{ width: 44, height: 44, borderRadius: 999, backgroundColor: "rgba(52,211,153,0.1)", borderWidth: 1, borderColor: "rgba(52,211,153,0.25)", alignItems: "center", justifyContent: "center", marginBottom: 10 }}>
+              <Text style={{ fontSize: 20 }}>{gameState.loserId === humanId ? "💀" : "🏆"}</Text>
+            </View>
+            <Text style={{ color: T.gold, fontSize: fs(width, 16), fontWeight: "900", letterSpacing: 2 }}>ROUND OVER</Text>
+            <Text style={{ color: T.text, fontSize: fs(width, 13), fontWeight: "900", marginTop: 10, textAlign: "center" }}>
+              {gameState.loserId === humanId
+                ? "YOU ARE THE LOSER!"
+                : `${gameState.players.find((p) => p.id === gameState.loserId)?.name ?? "Player"} IS THE LOSER!`}
+            </Text>
+            {gameState.loserId !== humanId && (
+              <View style={{ backgroundColor: "rgba(52,211,153,0.12)", borderWidth: 1, borderColor: "rgba(52,211,153,0.25)", borderRadius: 10, paddingHorizontal: 16, paddingVertical: 6, marginTop: 12 }}>
+                <Text style={{ color: T.accent, fontSize: fs(width, 12), fontWeight: "900" }}>
+                  +{currentBet.toLocaleString()} COINS WON!
+                </Text>
+              </View>
+            )}
+            <View style={{ flexDirection: "row", gap: 10, marginTop: 22, width: "100%" }}>
+              {!network || network.seatIndex === 0 ? (
+                <Pressable
+                  onPress={() => { setMatchOverVisible(false); startNewGame(); }}
+                  style={{ flex: 1, paddingVertical: 14, borderRadius: 12, alignItems: "center", backgroundColor: T.gold, shadowColor: T.gold, shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.25, shadowRadius: 10, elevation: 8 }}
+                >
+                  <Text style={{ color: T.bg, fontSize: fs(width, 11), fontWeight: "900", letterSpacing: 1 }}>REMATCH</Text>
+                </Pressable>
+              ) : (
+                <Pressable disabled style={{ flex: 1, paddingVertical: 14, borderRadius: 12, alignItems: "center", backgroundColor: "rgba(212,168,67,0.25)" }}>
+                  <Text style={{ color: "rgba(255,255,255,0.6)", fontSize: fs(width, 9), fontWeight: "900", letterSpacing: 1, textAlign: "center" }}>WAITING FOR HOST</Text>
+                </Pressable>
+              )}
+              <Pressable
+                onPress={() => { setMatchOverVisible(false); setShowLeaveConfirm(true); }}
+                style={{ flex: 1, paddingVertical: 14, borderRadius: 12, alignItems: "center", borderWidth: 1, borderColor: "rgba(232,96,90,0.4)", backgroundColor: "rgba(232,96,90,0.12)" }}
+              >
+                <Text style={{ color: T.coral, fontSize: fs(width, 11), fontWeight: "900", letterSpacing: 1 }}>LEAVE TABLE</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
       <ConfirmDialog
         visible={showLeaveConfirm}
         title="LEAVE TABLE?"
@@ -1907,7 +2414,7 @@ function GameView({
    PLAYER BADGE
    ================================================================ */
 
-function PlayerBadge({ name, cardCount, isActive, safe, x, y, small = false }: { name: string; cardCount: number; isActive: boolean; safe: boolean; x: number; y: number; small?: boolean }) {
+function PlayerBadge({ name, avatarId, cardCount, isActive, safe, x, y, small = false }: { name: string; avatarId?: string; cardCount: number; isActive: boolean; safe: boolean; x: number; y: number; small?: boolean }) {
   const pulse = useSharedValue(1);
 
   useEffect(() => {
@@ -1923,7 +2430,7 @@ function PlayerBadge({ name, cardCount, isActive, safe, x, y, small = false }: {
     } else {
       pulse.value = withTiming(1, { duration: 200 });
     }
-  }, [isActive]);
+  }, [isActive, pulse]);
 
   const pulseStyle = useAnimatedStyle(() => ({ transform: [{ scale: pulse.value }] }));
 
@@ -1931,9 +2438,13 @@ function PlayerBadge({ name, cardCount, isActive, safe, x, y, small = false }: {
     <Animated.View style={[pulseStyle, { position: "absolute", left: x, top: y }]} pointerEvents="none">
       <View style={{ alignItems: "center" }}>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 4, borderRadius: 8, paddingHorizontal: 5, paddingVertical: 2, borderWidth: 1, backgroundColor: isActive ? "rgba(52,211,153,0.9)" : safe ? "rgba(52,211,153,0.5)" : "rgba(6,15,10,0.7)", borderColor: isActive ? T.gold : safe ? "rgba(52,211,153,0.4)" : "rgba(232,245,238,0.15)" }}>
-          <View style={{ width: 16, height: 16, borderRadius: 999, backgroundColor: isActive ? T.gold : "rgba(52,211,153,0.8)", alignItems: "center", justifyContent: "center" }}>
-            <Text style={{ fontWeight: "900", fontSize: 7, color: isActive ? T.bg : T.text }}>{name.slice(0, 1).toUpperCase()}</Text>
-          </View>
+          {small ? (
+            <AvatarChip avatarId={avatarId} label={name} size={16} border={isActive ? T.gold : "rgba(52,211,153,0.8)"} />
+          ) : (
+            <View style={{ width: 16, height: 16, borderRadius: 999, backgroundColor: isActive ? T.gold : "rgba(52,211,153,0.8)", alignItems: "center", justifyContent: "center" }}>
+              <Text style={{ fontWeight: "900", fontSize: 7, color: isActive ? T.bg : T.text }}>{name.slice(0, 1).toUpperCase()}</Text>
+            </View>
+          )}
           <Text style={{ fontWeight: "900", fontSize: 7, color: isActive ? T.bg : T.text }} numberOfLines={1}>{name.length > 6 ? name.slice(0, 6) : name}</Text>
           <View style={{ width: 14, height: 14, borderRadius: 999, backgroundColor: isActive ? "rgba(212,168,67,0.3)" : "rgba(232,245,238,0.15)", alignItems: "center", justifyContent: "center" }}>
             <Text style={{ fontWeight: "900", fontSize: 6, color: isActive ? T.bg : T.textMuted }}>{cardCount}</Text>
@@ -2042,6 +2553,7 @@ export default function GameScreen() {
   const [selectedPlayerCount, setSelectedPlayerCount] = useState(4);
   const [showFeedback, setShowFeedback] = useState(false);
   const [network, setNetwork] = useState<NetworkInfo | null>(null);
+  const [profile, setProfile] = useState<Profile>({ name: "Player", avatarId: "1" });
   const [coinBalance, setCoinBalance] = useState(0);
   const [currentBet, setCurrentBet] = useState(MIN_BET);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
@@ -2058,6 +2570,7 @@ export default function GameScreen() {
 
   useEffect(() => {
     loadStats().then(setStats);
+    loadProfile().then(setProfile);
     claimWelcomeBonus().then(setCoinBalance);
     getTransactionHistory().then(setTransactions);
   }, []);
@@ -2067,45 +2580,86 @@ export default function GameScreen() {
     return () => clearTimeout(timer);
   }, []);
 
-  // Networked match: sync authoritative game state + restart broadcasts.
-  useEffect(() => {
-    if (!network) return;
-    const socket = network.socket;
-    const onGameUpdate = ({ gameState }: { gameState: GameState }) =>
-      setNetwork((prev) => (prev ? { ...prev, gameState } : prev));
-    const onGameRestarted = ({ gameId, gameState }: { gameId: string; gameState: GameState }) =>
-      setNetwork((prev) => (prev ? { ...prev, gameId, gameState } : prev));
-    socket.on("game_update", onGameUpdate);
-    socket.on("game_restarted", onGameRestarted);
-    return () => {
-      socket.off("game_update", onGameUpdate);
-      socket.off("game_restarted", onGameRestarted);
-    };
-  }, [network]);
-
   const cardWidth = Math.max(36, Math.min(48, Math.min(width, height) * 0.11));
 
-  if (stage === "splash") return <SplashView />;
+  const handleWin = useCallback(async (amount: number) => {
+    const newBal = await awardWinnings(amount);
+    setCoinBalance(newBal);
+  }, []);
+
+  const stageRef = useRef(stage);
+  useEffect(() => {
+    stageRef.current = stage;
+  });
+
+  const lastExitPressRef = useRef(0);
+  const exitHintTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [exitHint, setExitHint] = useState(false);
+
+  // Android hardware BACK outside a match: require a double press before exiting.
+  // While a match is running, hand the event to GameView's own handler instead.
+  useEffect(() => {
+    if (Platform.OS !== "android") return;
+    const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+      if (stageRef.current === "game") return false;
+      const now = Date.now();
+      if (now - lastExitPressRef.current < 3000) {
+        lastExitPressRef.current = 0;
+        setExitHint(false);
+        BackHandler.exitApp();
+        return true;
+      }
+      lastExitPressRef.current = now;
+      setExitHint(true);
+      if (exitHintTimerRef.current) clearTimeout(exitHintTimerRef.current);
+      exitHintTimerRef.current = setTimeout(() => setExitHint(false), 3000);
+      return true;
+    });
+    return () => {
+      sub.remove();
+      if (exitHintTimerRef.current) clearTimeout(exitHintTimerRef.current);
+    };
+  }, []);
+
+  const wrapPage = (node: ReactNode) => (
+    <View style={{ flex: 1 }}>
+      {node}
+      {exitHint && (
+        <View pointerEvents="none" style={{ position: "absolute", left: 0, right: 0, top: 20, alignItems: "center", zIndex: 300 }}>
+          <View style={{ backgroundColor: "rgba(6,15,10,0.95)", paddingHorizontal: 16, paddingVertical: 8, borderRadius: 999, borderWidth: 1, borderColor: "rgba(212,168,67,0.5)" }}>
+            <Text style={{ color: T.text, fontSize: 10, fontWeight: "900" }}>Press BACK again to exit</Text>
+          </View>
+        </View>
+      )}
+    </View>
+  );
+
+  if (stage === "splash") return wrapPage(<SplashView />);
   if (stage === "onboarding")
-    return <OnboardingView page={onboardingPage} setPage={setOnboardingPage} onFinish={() => setStage("menu")} />;
+    return wrapPage(<OnboardingView page={onboardingPage} setPage={setOnboardingPage} onFinish={() => setStage("menu")} />);
   if (stage === "settings")
-    return <SettingsPage onBack={() => setStage("menu")} />;
+    return wrapPage(<SettingsPage onBack={() => setStage("menu")} />);
+  if (stage === "profile")
+    return wrapPage(<ProfilePage profile={profile} onSave={setProfile} onBack={() => setStage("menu")} />);
   if (stage === "stats")
-    return <StatsPage stats={stats} transactions={transactions} coinBalance={coinBalance} onBack={() => setStage("menu")} />;
+    return wrapPage(<StatsPage stats={stats} transactions={transactions} coinBalance={coinBalance} onBack={() => setStage("menu")} />);
   if (stage === "howtoplay")
-    return <HowToPlayPage onBack={() => setStage("menu")} />;
+    return wrapPage(<HowToPlayPage onBack={() => setStage("menu")} />);
   if (stage === "betting")
-    return <BettingPage coinBalance={coinBalance} currentBet={currentBet} setCurrentBet={setCurrentBet} onConfirm={() => setStage("game")} onBack={() => setStage("menu")} />;
+    return wrapPage(<BettingPage coinBalance={coinBalance} currentBet={currentBet} setCurrentBet={setCurrentBet} onConfirm={() => setStage("game")} onBack={() => setStage("menu")} />);
   if (stage === "menu")
-    return (
+    return wrapPage(
       <View style={{ flex: 1 }}>
         <MenuView
           coinBalance={coinBalance}
+          profile={profile}
           onPlay={(playerCount) => { playButtonPress(); setSelectedPlayerCount(playerCount); setStage("betting"); }}
           onFriends={() => { playButtonPress(); setStage("lobby"); }}
+          onOnline={() => { playButtonPress(); setStage("online"); }}
           onSettings={() => setStage("settings")}
           onStats={() => setStage("stats")}
           onHowToPlay={() => setStage("howtoplay")}
+          onProfile={() => setStage("profile")}
         />
         <FeedbackSummary
           visible={showFeedback}
@@ -2116,15 +2670,18 @@ export default function GameScreen() {
       </View>
     );
   if (stage === "lobby")
-    return <FriendsLobby onMatchStart={(info) => { setNetwork(info); setSelectedPlayerCount(info.playerCount); setStage("game"); }} onBack={() => setStage("menu")} />;
+    return wrapPage(<FriendsLobby profile={profile} onMatchStart={(info) => { setNetwork(info); setSelectedPlayerCount(info.playerCount); setStage("game"); }} onBack={() => setStage("menu")} />);
+  if (stage === "online")
+    return wrapPage(<OnlinePage profile={profile} onMatchStart={(info) => { setNetwork(info); setSelectedPlayerCount(info.playerCount); setStage("game"); }} onSwitchToPrivate={() => setStage("lobby")} onBack={() => setStage("menu")} />);
 
-  return (
+  return wrapPage(
     <GameView
       cardWidth={cardWidth}
       playerCount={selectedPlayerCount}
       currentBet={currentBet}
       coinBalance={coinBalance}
       network={network}
+      profile={profile}
       onLeave={async () => {
         network?.socket?.disconnect();
         setNetwork(null);
@@ -2132,7 +2689,7 @@ export default function GameScreen() {
         setCoinBalance(newBal);
         setStage("menu");
       }}
-      onWin={async (amount) => { const newBal = await awardWinnings(amount); setCoinBalance(newBal); }}
+      onWin={handleWin}
       onStatsUpdate={setStats}
     />
   );

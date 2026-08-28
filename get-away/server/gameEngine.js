@@ -95,7 +95,7 @@ function resolveTrick(state) {
 }
 
 function createNetworkGame(playerCount) {
-  const count = Math.min(6, Math.max(3, playerCount));
+  const count = Math.min(6, Math.max(2, playerCount));
   const deck = shuffle(createDeck());
   const players = Array.from({ length: count }, (_, index) => ({
     id: `player-${index}`,
@@ -180,10 +180,107 @@ function playCpuTurn(state) {
   return card ? playCard(state, player.id, card.id).state : state;
 }
 
+// Plays a random valid card for the current player (used to auto-advance a
+// turn in online matches when a human does not move in time).
+function playAutoTurn(state) {
+  if (state.phase !== "playing") return state;
+  const player = state.players.find((item) => item.id === state.currentPlayerId);
+  if (!player) return state;
+  const options = playableCards(player, state.trick);
+
+  if (state.trick.length === 0 && state.discardCount === 0) {
+    const aceOfSpades = options.find((item) => item.id === "A-spades");
+    if (aceOfSpades) return playCard(state, player.id, aceOfSpades.id).state;
+  }
+
+  const card = options[Math.floor(Math.random() * options.length)];
+  return card ? playCard(state, player.id, card.id).state : state;
+}
+
+// Handles a mid-match player leaving: their remaining cards are dealt out
+// (shuffled, round-robin) among the players who are still in the round.
+function redistributeCardsOnLeave(state, playerId) {
+  const leaving = state.players.find((p) => p.id === playerId);
+  if (!leaving || state.phase !== "playing") return state;
+
+  const survivors = state.activePlayerIds.filter((id) => id !== playerId);
+  if (survivors.length === 0) return state;
+
+  let players = state.players.map((p) =>
+    p.id === playerId ? { ...p, hand: [], safe: true } : { ...p, hand: [...p.hand] },
+  );
+
+  // Only one player left in the round: they inherit the leaver's cards and win by default.
+  if (survivors.length === 1) {
+    players = players.map((p) =>
+      p.id === survivors[0]
+        ? { ...p, hand: [...p.hand, ...leaving.hand], safe: true }
+        : p,
+    );
+    const winner = players.find((p) => p.id === survivors[0]);
+    return {
+      ...state,
+      players,
+      activePlayerIds: [],
+      currentPlayerId: survivors[0],
+      trick: [],
+      phase: "finished",
+      loserId: playerId,
+      message: `${(winner && winner.name) || survivors[0]} wins — the opponent left the match.`,
+    };
+  }
+
+  const cards = shuffle(leaving.hand);
+  const recipients = players.filter((p) => survivors.includes(p.id));
+  let index = 0;
+  for (const card of cards) {
+    recipients[index % recipients.length].hand.push(card);
+    index += 1;
+  }
+
+  let activePlayerIds = survivors;
+  players = players.map((p) => {
+    if (p.safe) return p;
+    if (!p.hand.length) {
+      activePlayerIds = activePlayerIds.filter((id) => id !== p.id);
+      return { ...p, safe: true };
+    }
+    return p;
+  });
+
+  if (activePlayerIds.length === 1) {
+    const loser = players.find((p) => p.id === activePlayerIds[0]);
+    return {
+      ...state,
+      players,
+      activePlayerIds,
+      currentPlayerId: activePlayerIds[0],
+      trick: [],
+      phase: "finished",
+      loserId: activePlayerIds[0],
+      message: `${(loser && loser.name) || activePlayerIds[0]} is the LOSER!`,
+    };
+  }
+
+  const currentPlayerId = activePlayerIds.includes(state.currentPlayerId)
+    ? state.currentPlayerId
+    : activePlayerIds[0];
+
+  return {
+    ...state,
+    players,
+    activePlayerIds,
+    currentPlayerId,
+    message: `${(leaving && leaving.name) || playerId} left — their cards were dealt to the remaining players.`,
+  };
+}
+
 module.exports = {
   createNetworkGame,
   playCard,
   playCpuTurn,
+  playAutoTurn,
   playableCards,
   setPlayerCpu,
+  redistributeCardsOnLeave,
 };

@@ -1,6 +1,5 @@
-import { View, Text, Pressable, Modal } from "react-native";
+import { View, Text, Pressable, Modal, useWindowDimensions } from "react-native";
 import Animated, { FadeIn, FadeOut } from "react-native-reanimated";
-import { useWindowDimensions } from "react-native";
 
 type ConfirmDialogProps = {
   visible: boolean;

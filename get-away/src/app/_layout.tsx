@@ -1,8 +1,10 @@
 import "@/global.css";
-import { useEffect, useState, Component, type ReactNode } from "react";
-import { View, Text, Pressable } from "react-native";
+import { useEffect, Component, type ReactNode } from "react";
+import { View, Text, Pressable, Platform } from "react-native";
 import { Stack } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
+import { StatusBar } from "expo-status-bar";
+import * as NavigationBar from "expo-navigation-bar";
 
 SplashScreen.preventAutoHideAsync();
 
@@ -45,15 +47,16 @@ class ErrorBoundary extends Component<
 }
 
 export default function RootLayout() {
-  const [ready, setReady] = useState(false);
-
   useEffect(() => {
-    setReady(true);
     SplashScreen.hideAsync();
+    if (Platform.OS === "android") {
+      NavigationBar.setVisibilityAsync("hidden");
+    }
   }, []);
 
   return (
     <ErrorBoundary>
+      <StatusBar hidden />
       <Stack screenOptions={{ headerShown: false }} />
     </ErrorBoundary>
   );

@@ -2,7 +2,7 @@ export type Suit = 'spades' | 'hearts' | 'diamonds' | 'clubs';
 export type Rank = '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9' | '10' | 'J' | 'Q' | 'K' | 'A';
 export type GameCard = { id: string; rank: Rank; suit: Suit };
 export type PlayedCard = { playerId: string; card: GameCard };
-export type GamePlayer = { id: string; name: string; hand: GameCard[]; safe: boolean; isCpu?: boolean };
+export type GamePlayer = { id: string; name: string; hand: GameCard[]; safe: boolean; isCpu?: boolean; avatarId?: string };
 export type GameState = { players: GamePlayer[]; activePlayerIds: string[]; currentPlayerId: string; trick: PlayedCard[]; discardCount: number; message: string; phase: 'playing' | 'finished'; loserId?: string };
 
 const suits: Suit[] = ['spades', 'hearts', 'diamonds', 'clubs'];
@@ -93,12 +93,16 @@ function resolveTrick(state: GameState): GameState {
   return { ...state, players, activePlayerIds, currentPlayerId: leadPlayerId, trick: [], discardCount, message };
 }
 
-export function createGame(playerCount: number): GameState {
-  const count = Math.min(6, Math.max(3, playerCount));
+export function createGame(
+  playerCount: number,
+  profile?: { name: string; avatarId?: string },
+): GameState {
+  const count = Math.min(6, Math.max(2, playerCount));
   const deck = shuffle(createDeck());
   const players = Array.from({ length: count }, (_, index) => ({
     id: `player-${index}`,
-    name: index === 0 ? 'YOU' : `CPU ${index}`,
+    name: index === 0 ? (profile?.name?.trim() || 'YOU') : `CPU ${index}`,
+    avatarId: index === 0 ? profile?.avatarId : undefined,
     hand: [] as GameCard[],
     safe: false,
     isCpu: index !== 0,
@@ -120,7 +124,7 @@ export function createGame(playerCount: number): GameState {
 
 /** Builds a game where every seat is a real (remote) human. Used by the network server. */
 export function createNetworkGame(playerCount: number): GameState {
-  const count = Math.min(6, Math.max(3, playerCount));
+  const count = Math.min(6, Math.max(2, playerCount));
   const deck = shuffle(createDeck());
   const players = Array.from({ length: count }, (_, index) => ({
     id: `player-${index}`,

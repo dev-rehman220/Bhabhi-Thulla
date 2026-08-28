@@ -15,14 +15,53 @@ const io = new Server(server, {
 
 const PORT = process.env.PORT || 3001;
 
+// Seconds a human gets on their turn before the server auto-plays a random card.
+const TURN_AUTO_MS = 10000;
+
 // ─── Room Store ────────────────────────────────────────────────
 const rooms = new Map();
+
+// Public rooms waiting to be filled by Quick Match.
+const waitingQueue = new Set();
+
+function makeRoomId() {
+  return `qm_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+// Add a room to the queue if it still wants players, otherwise drop it.
+function syncQueue(room) {
+  if (room && !room.started && room.players.length > 0 && room.players.length < room.maxPlayers) {
+    waitingQueue.add(room.id);
+  } else if (room) {
+    waitingQueue.delete(room.id);
+  }
+}
+
+// First public table with a free seat.
+function findOpenTable() {
+  for (const roomId of waitingQueue) {
+    const room = rooms.get(roomId);
+    if (room && !room.started && room.players.length < room.maxPlayers) return room;
+  }
+  return null;
+}
 
 function generateCode() {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
   let code = "";
   for (let i = 0; i < 6; i++) code += chars[Math.floor(Math.random() * chars.length)];
   return code;
+}
+
+const VALID_AVATAR_IDS = new Set(["1", "2", "3", "4", "5", "6", "7", "8", "9"]);
+
+function sanitizeName(value) {
+  const name = String(value ?? "").trim().slice(0, 16);
+  return name || "Player";
+}
+
+function sanitizeAvatarId(value) {
+  return VALID_AVATAR_IDS.has(value) ? value : "1";
 }
 
 function findRoomByCode(code) {
@@ -40,11 +79,40 @@ function roomToJSON(room) {
     players: room.players.map((p) => ({
       id: p.id,
       displayName: p.displayName,
+      avatarId: sanitizeAvatarId(p.avatarId),
       isHost: p.isHost,
       status: p.status,
     })),
   };
 }
+
+function joinRoom(socket, room, playerId, displayName, avatarId) {
+  const existing = room.players.find((p) => p.id === playerId);
+  if (!existing) {
+    if (room.players.length >= room.maxPlayers) return { error: "ROOM_FULL" };
+    room.players.push({
+      id: playerId,
+      displayName: sanitizeName(displayName),
+      avatarId: sanitizeAvatarId(avatarId),
+      isHost: room.players.length === 0,
+      status: "active",
+      socketId: socket.id,
+    });
+  } else {
+    existing.socketId = socket.id;
+  }
+  socket.join(room.id);
+  socket.data = { roomId: room.id, playerId };
+  io.to(room.id).emit("room_updated", { room: roomToJSON(room) });
+  syncQueue(room);
+  return { ok: true };
+}
+
+function broadcastOnlineCount() {
+  io.emit("online_players", { count: io.engine.clientsCount });
+}
+
+setInterval(broadcastOnlineCount, 5000).unref();
 
 function makeGameId() {
   return `game_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
@@ -62,6 +130,16 @@ function buildGameForRoom(room) {
   for (let i = 0; i < state.players.length; i += 1) {
     if (!liveSeats.has(i)) state = engine.setPlayerCpu(state, `player-${i}`, true);
   }
+  const playerBySeat = new Map(room.players.map((p) => [p.seatIndex, p]));
+  state = {
+    ...state,
+    players: state.players.map((p, i) => {
+      const roomPlayer = playerBySeat.get(i);
+      return roomPlayer
+        ? { ...p, name: sanitizeName(roomPlayer.displayName), avatarId: sanitizeAvatarId(roomPlayer.avatarId) }
+        : p;
+    }),
+  };
   return state;
 }
 
@@ -78,12 +156,21 @@ function stopCpuTimer(room) {
   }
 }
 
-function scheduleCpuTurns(room) {
-  if (room.cpuTimer || !room.game) return;
+// Covers the timeout a human gets before the server auto-plays a random card.
+function stopTurnTimers(room) {
+  stopCpuTimer(room);
+  if (room.autoTurnTimer) {
+    clearTimeout(room.autoTurnTimer);
+    room.autoTurnTimer = null;
+  }
+}
+
+function startCpuTimer(room) {
   room.cpuTimer = setInterval(() => {
     const state = room.game && room.game.state;
     if (!state || state.phase !== "playing" || !isCpuTurn(state)) {
       stopCpuTimer(room);
+      scheduleTurnTimers(room);
       return;
     }
     room.game.state = engine.playCpuTurn(state);
@@ -91,12 +178,43 @@ function scheduleCpuTurns(room) {
   }, 700);
 }
 
+function scheduleTurnTimers(room) {
+  if (!room.game) return;
+  const state = room.game.state;
+  if (!state || state.phase !== "playing") {
+    stopTurnTimers(room);
+    return;
+  }
+  if (isCpuTurn(state)) {
+    if (room.autoTurnTimer) {
+      clearTimeout(room.autoTurnTimer);
+      room.autoTurnTimer = null;
+    }
+    if (!room.cpuTimer) startCpuTimer(room);
+    return;
+  }
+stopCpuTimer(room);
+  if (room.autoTurnTimer) {
+    clearTimeout(room.autoTurnTimer);
+    room.autoTurnTimer = null;
+  }
+  room.autoTurnTimer = setTimeout(() => {
+    room.autoTurnTimer = null;
+    const st = room.game && room.game.state;
+    if (!st || st.phase !== "playing" || isCpuTurn(st)) return;
+    room.game.state = engine.playAutoTurn(st);
+    io.to(room.id).emit("game_update", { gameId: room.game.gameId, gameState: room.game.state });
+    scheduleTurnTimers(room);
+  }, TURN_AUTO_MS);
+}
+
 // ─── Socket Events ─────────────────────────────────────────────
 io.on("connection", (socket) => {
   console.log(`[CONNECT] ${socket.id}`);
+  broadcastOnlineCount();
 
   // ── Join / Create Room ──────────────────────────────────────
-  socket.on("join_room", ({ roomId, playerId, displayName, settings }) => {
+  socket.on("join_room", ({ roomId, playerId, displayName, avatarId, settings }) => {
     const maxPlayers = settings?.maxPlayers ?? 4;
 
     let room = rooms.get(roomId);
@@ -121,32 +239,55 @@ io.on("connection", (socket) => {
       console.log(`[ROOM CREATED] ${room.inviteCode} (${roomId})`);
     }
 
-    // Check if player already in room
-    const existing = room.players.find((p) => p.id === playerId);
-    if (!existing) {
-      if (room.players.length >= room.maxPlayers) {
-        socket.emit("error", { code: "ROOM_FULL" });
-        return;
-      }
-      room.players.push({
-        id: playerId,
-        displayName: displayName || "Player",
-        isHost: room.players.length === 0,
-        status: "active",
-        socketId: socket.id,
-      });
-    } else {
-      existing.socketId = socket.id;
+    const result = joinRoom(socket, room, playerId, displayName, avatarId);
+    if (result.error) {
+      socket.emit("error", { code: result.error });
+      return;
     }
 
-    // Join the socket room
-    socket.join(roomId);
-    socket.data = { roomId, playerId };
+    console.log(`[JOINED] ${sanitizeName(displayName)} → ${room.inviteCode} (${room.players.length}/${room.maxPlayers})`);
+  });
 
-    console.log(`[JOINED] ${displayName} → ${room.inviteCode} (${room.players.length}/${room.maxPlayers})`);
+  // ── Quick Match (matchmaking queue) ─────────────────────────
+  socket.on("quick_match", ({ playerId, displayName, avatarId, maxPlayers }) => {
+    const size = Math.max(2, Math.min(6, Number(maxPlayers) || 4));
 
-    // Notify all players in room
-    io.to(roomId).emit("room_updated", { room: roomToJSON(room) });
+    let room = findOpenTable();
+    if (!room) {
+      room = {
+        id: makeRoomId(),
+        inviteCode: generateCode(),
+        maxPlayers: size,
+        players: [],
+        hostId: playerId,
+        started: false,
+      };
+      rooms.set(room.id, room);
+      console.log(`[QUICK ROOM CREATED] ${room.inviteCode} (${room.id})`);
+    }
+
+    const result = joinRoom(socket, room, playerId, displayName, avatarId);
+    if (result.error) {
+      socket.emit("error", { code: result.error });
+      return;
+    }
+
+    socket.emit("matchmaking_joined", { room: roomToJSON(room) });
+    if (room.players.length >= room.maxPlayers) syncQueue(room);
+    console.log(`[QUICK MATCH] ${sanitizeName(displayName)} → ${room.inviteCode} (${room.players.length}/${room.maxPlayers})`);
+  });
+
+  // ── Cancel matchmaking ──────────────────────────────────────
+  socket.on("leave_matchmaking", () => {
+    const { roomId, playerId } = socket.data || {};
+    if (!roomId || !playerId) return;
+    const room = rooms.get(roomId);
+    if (!room) return;
+    waitingQueue.delete(room.id);
+    if (!room.started && room.players.length <= 1) {
+      rooms.delete(room.id);
+      console.log(`[MATCHMAKING CANCELLED] ${room.inviteCode} removed`);
+    }
   });
 
   // ── Join by Invite Code ─────────────────────────────────────
@@ -187,6 +328,7 @@ io.on("connection", (socket) => {
     }
 
     room.started = true;
+    waitingQueue.delete(room.id);
     const gameState = buildGameForRoom(room);
     room.game = { gameId: makeGameId(), state: gameState };
     const seatIndexByPlayerId = {};
@@ -199,13 +341,13 @@ io.on("connection", (socket) => {
       roomId,
       gameId: room.game.gameId,
       playerCount: room.players.length,
-      players: room.players.map((p) => ({ id: p.id, name: p.displayName })),
+      players: room.players.map((p) => ({ id: p.id, name: p.displayName, avatarId: sanitizeAvatarId(p.avatarId) })),
       gameState: room.game.state,
       seatIndexByPlayerId,
     });
 
     // If the opening seat is a CPU (e.g. a 2-human room's filler seat), kick off auto-play.
-    if (isCpuTurn(room.game.state)) scheduleCpuTurns(room);
+    scheduleTurnTimers(room);
   });
 
   // ── Play Card (networked game) ──────────────────────────────
@@ -227,7 +369,7 @@ io.on("connection", (socket) => {
     }
     room.game.state = result.state;
     io.to(roomId).emit("game_update", { gameId: room.game.gameId, gameState: room.game.state });
-    if (isCpuTurn(room.game.state)) scheduleCpuTurns(room);
+    scheduleTurnTimers(room);
   });
 
   // ── Restart Match ───────────────────────────────────────────
@@ -246,11 +388,11 @@ io.on("connection", (socket) => {
       socket.emit("error", { code: "GAME_NOT_RUNNING" });
       return;
     }
-    stopCpuTimer(room);
+    stopTurnTimers(room);
     const gameState = buildGameForRoom(room);
     room.game = { gameId: makeGameId(), state: gameState };
     io.to(roomId).emit("game_restarted", { roomId, gameId: room.game.gameId, gameState });
-    if (isCpuTurn(room.game.state)) scheduleCpuTurns(room);
+    scheduleTurnTimers(room);
   });
 
   // ── Disconnect ──────────────────────────────────────────────
@@ -263,11 +405,15 @@ io.on("connection", (socket) => {
 
     const leaving = room.players.find((p) => p.id === playerId);
 
-    // Mid-match disconnect: hand the empty seat to a CPU and keep the round going.
+    // Mid-match disconnect: deal the leaver's cards out to the remaining players and keep the round going.
     if (room.game && leaving && typeof leaving.seatIndex === "number") {
-      room.game.state = engine.setPlayerCpu(room.game.state, `player-${leaving.seatIndex}`, true);
-      io.to(roomId).emit("game_update", { gameId: room.game.gameId, gameState: room.game.state });
-      if (isCpuTurn(room.game.state)) scheduleCpuTurns(room);
+      const seatId = `player-${leaving.seatIndex}`;
+      if (room.game.state.phase === "playing") {
+        stopTurnTimers(room);
+        room.game.state = engine.redistributeCardsOnLeave(room.game.state, seatId);
+        io.to(roomId).emit("game_update", { gameId: room.game.gameId, gameState: room.game.state });
+        scheduleTurnTimers(room);
+      }
     }
 
     // Remove player from room
@@ -277,7 +423,8 @@ io.on("connection", (socket) => {
 
     // If room is empty, delete it
     if (room.players.length === 0) {
-      stopCpuTimer(room);
+      stopTurnTimers(room);
+      waitingQueue.delete(room.id);
       rooms.delete(roomId);
       console.log(`[ROOM DELETED] ${room.inviteCode}`);
       return;
@@ -287,6 +434,8 @@ io.on("connection", (socket) => {
     if (!room.players.find((p) => p.isHost) && room.players.length > 0) {
       room.players[0].isHost = true;
     }
+
+    syncQueue(room);
 
     io.to(roomId).emit("room_updated", { room: roomToJSON(room) });
   });

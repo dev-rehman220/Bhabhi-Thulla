@@ -46,12 +46,16 @@ export function FeedbackSummary({ visible, onClose, onPlayWithFriends, stats }: 
   }));
 
   const handleOpen = () => {
+    // eslint-disable-next-line react-hooks/immutability -- reanimated shared value mutation is the intended API
     cardScale.value = withSpring(1, { damping: 14, stiffness: 180 });
+    // eslint-disable-next-line react-hooks/immutability -- reanimated shared value mutation is the intended API
     cardOpacity.value = withSpring(1, { damping: 14, stiffness: 180 });
   };
 
   const handleClose = () => {
+    // eslint-disable-next-line react-hooks/immutability -- reanimated shared value mutation is the intended API
     cardScale.value = withSpring(0.92, { damping: 18, stiffness: 200 });
+    // eslint-disable-next-line react-hooks/immutability -- reanimated shared value mutation is the intended API
     cardOpacity.value = withSpring(0, { damping: 18, stiffness: 200 });
   };
 
