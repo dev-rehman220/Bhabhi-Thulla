@@ -12,6 +12,117 @@ const MIN_BET = 1_000;
 const MAX_BET = 100_000;
 const LEAVE_PENALTY_MULTIPLE = 2;
 
+/* ── Daily rewards (7-day streak) ─────────────────────────── */
+
+export const DAILY_REWARDS = [1_000, 2_000, 3_000, 4_000, 5_000, 7_500, 10_000];
+const REWARD_KEY = "@get-away-thulla/daily-reward";
+
+export interface DailyRewardState {
+  lastClaimDate: string; // "YYYY-MM-DD" (local)
+  streak: number; // consecutive days claimed, 1..7
+}
+
+export interface DailyRewardStatus {
+  streak: number;
+  availableDay: number; // 1-7 day the player can claim today (0 if already claimed)
+  claimed: boolean;
+  claimedDay: number; // day index (1-7) claimed today, 0 if none
+  nextDay: number; // upcoming day after completing the current cycle
+}
+
+function dateStr(offsetDays = 0): string {
+  const d = new Date();
+  d.setDate(d.getDate() + offsetDays);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+export async function loadDailyReward(): Promise<DailyRewardState> {
+  try {
+    const raw = await AsyncStorage.getItem(REWARD_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch {
+    // fall through to default
+  }
+  return { lastClaimDate: "", streak: 0 };
+}
+
+export async function saveDailyReward(state: DailyRewardState): Promise<void> {
+  await AsyncStorage.setItem(REWARD_KEY, JSON.stringify(state));
+}
+
+export async function getDailyRewardStatus(): Promise<DailyRewardStatus> {
+  const state = await loadDailyReward();
+  const today = dateStr();
+  const yesterday = dateStr(-1);
+
+  if (state.lastClaimDate === today) {
+    return {
+      streak: state.streak,
+      availableDay: 0,
+      claimed: true,
+      claimedDay: state.streak,
+      nextDay: (state.streak % 7) + 1,
+    };
+  }
+
+  if (state.lastClaimDate === yesterday) {
+    const availableDay = (state.streak % 7) + 1;
+    return {
+      streak: state.streak,
+      availableDay,
+      claimed: false,
+      claimedDay: 0,
+      nextDay: (availableDay % 7) + 1,
+    };
+  }
+
+  // Missed a day (or first ever) → streak resets to day 1.
+  return { streak: 0, availableDay: 1, claimed: false, claimedDay: 0, nextDay: 2 };
+}
+
+// Claims today's reward, advancing the streak. Missing a day resets to day 1.
+// Returns the updated status and the amount added (0 if already claimed today).
+export async function claimDailyReward(): Promise<{ status: DailyRewardStatus; amount: number; balance: number }> {
+  const state = await loadDailyReward();
+  const today = dateStr();
+  const yesterday = dateStr(-1);
+
+  const already = state.lastClaimDate === today;
+  const consecutive = state.lastClaimDate === yesterday;
+  let streak = state.streak;
+
+  if (!already) {
+    streak = consecutive ? (streak % 7) + 1 : 1;
+  }
+
+  const amount = already ? 0 : DAILY_REWARDS[streak - 1] ?? DAILY_REWARDS[0];
+
+  const wallet = await loadBalance();
+  const updatedWallet: WalletState = {
+    ...wallet,
+    balance: wallet.balance + amount,
+  };
+  await saveBalance(updatedWallet);
+  if (!already && amount > 0) {
+    await addTransaction({ type: "bonus", amount, description: `Daily reward — Day ${streak}` });
+  }
+
+  const updatedState: DailyRewardState = { lastClaimDate: today, streak };
+  await saveDailyReward(updatedState);
+
+  const status: DailyRewardStatus = {
+    streak,
+    availableDay: already ? 0 : 0,
+    claimed: true,
+    claimedDay: streak,
+    nextDay: (streak % 7) + 1,
+  };
+  return { status, amount, balance: updatedWallet.balance };
+}
+
 export interface Transaction {
   id: string;
   type: "earn" | "spend" | "bet" | "win" | "penalty" | "bonus";

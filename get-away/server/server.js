@@ -28,20 +28,29 @@ function makeRoomId() {
   return `qm_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
-// Add a room to the queue if it still wants players, otherwise drop it.
+// Add a room to the queue while it still has a seat for another REAL player
+// (empty seats are handed to disguised CPUs, so a room stays open for matching
+// until every seat is taken by a human).
 function syncQueue(room) {
-  if (room && !room.started && room.players.length > 0 && room.players.length < room.maxPlayers) {
+  if (room && room.players.length > 0 && room.players.length < room.maxPlayers) {
     waitingQueue.add(room.id);
   } else if (room) {
     waitingQueue.delete(room.id);
   }
 }
 
-// First public table with a free seat.
-function findOpenTable() {
+// First public table that still has a free seat matching the requested size AND bet.
+function findOpenTable(size, bet) {
   for (const roomId of waitingQueue) {
     const room = rooms.get(roomId);
-    if (room && !room.started && room.players.length < room.maxPlayers) return room;
+    if (
+      room &&
+      room.players.length < room.maxPlayers &&
+      room.maxPlayers === size &&
+      room.bet === bet
+    ) {
+      return room;
+    }
   }
   return null;
 }
@@ -54,6 +63,18 @@ function generateCode() {
 }
 
 const VALID_AVATAR_IDS = new Set(["1", "2", "3", "4", "5", "6", "7", "8", "9"]);
+
+// Human-looking names used to fill empty seats so the player cannot tell the
+// opponents are actually CPUs. Also a matching (real) name → no giveaway.
+const CPU_NAMES = [
+  "Arjun", "Raj", "Simran", "Aisha", "Vikram", "Priya", "Neha", "Karan",
+  "Sana", "Rohit", "Deepika", "Aman", "Zoya", "Imran", "Kavita", "Ravi",
+  "Sneha", "Aditya", "Meera", "Farhan", "Ananya", "Sandeep", "Tanya", "Gaurav",
+];
+
+function disguiseCpuName(seedIndex) {
+  return CPU_NAMES[seedIndex % CPU_NAMES.length];
+}
 
 function sanitizeName(value) {
   const name = String(value ?? "").trim().slice(0, 16);
@@ -75,7 +96,7 @@ function roomToJSON(room) {
   return {
     id: room.id,
     inviteCode: room.inviteCode,
-    settings: { maxPlayers: room.maxPlayers },
+    settings: { maxPlayers: room.maxPlayers, bet: room.bet },
     players: room.players.map((p) => ({
       id: p.id,
       displayName: p.displayName,
@@ -90,6 +111,12 @@ function joinRoom(socket, room, playerId, displayName, avatarId) {
   const existing = room.players.find((p) => p.id === playerId);
   if (!existing) {
     if (room.players.length >= room.maxPlayers) return { error: "ROOM_FULL" };
+
+    // When the room is already running (auto-started with disguised CPUs), seat
+    // the newcomer in an empty slot and free that seat's CPU.
+    const freeSeat = findFreeSeatIndex(room);
+    if (freeSeat === null) return { error: "ROOM_FULL" };
+
     room.players.push({
       id: playerId,
       displayName: sanitizeName(displayName),
@@ -97,6 +124,7 @@ function joinRoom(socket, room, playerId, displayName, avatarId) {
       isHost: room.players.length === 0,
       status: "active",
       socketId: socket.id,
+      seatIndex: freeSeat,
     });
   } else {
     existing.socketId = socket.id;
@@ -106,6 +134,16 @@ function joinRoom(socket, room, playerId, displayName, avatarId) {
   io.to(room.id).emit("room_updated", { room: roomToJSON(room) });
   syncQueue(room);
   return { ok: true };
+}
+
+// Returns the seat index (0-based) that still has no REAL player in the room,
+// or null when every seat is taken by a human.
+function findFreeSeatIndex(room) {
+  const taken = new Set(room.players.map((p) => p.seatIndex).filter((i) => typeof i === "number"));
+  for (let i = 0; i < room.maxPlayers; i += 1) {
+    if (!taken.has(i)) return i;
+  }
+  return null;
 }
 
 function broadcastOnlineCount() {
@@ -119,25 +157,38 @@ function makeGameId() {
 }
 
 // Builds an authoritative game for a room, preserving each player's seat across restarts.
-// Any seat with no live player is handed over to a CPU.
+// Any seat with no live player is handed over to a (disguised-name) CPU.
+// For quick-match rooms (autoCpuFill) the table is always the full requested size so a
+// solo starter is greeted by a full table of human-looking opponents. For private rooms
+// the game is sized to the humans actually present.
 function buildGameForRoom(room) {
   room.players.forEach((p, i) => {
     if (typeof p.seatIndex !== "number") p.seatIndex = i;
   });
-  const requested = Math.max(2, ...room.players.map((p) => p.seatIndex + 1));
+  const requested = room.autoCpuFill
+    ? room.maxPlayers
+    : Math.max(2, ...room.players.map((p) => p.seatIndex + 1));
   let state = engine.createNetworkGame(requested);
-  const liveSeats = new Set(room.players.map((p) => p.seatIndex));
-  for (let i = 0; i < state.players.length; i += 1) {
-    if (!liveSeats.has(i)) state = engine.setPlayerCpu(state, `player-${i}`, true);
-  }
   const playerBySeat = new Map(room.players.map((p) => [p.seatIndex, p]));
   state = {
     ...state,
     players: state.players.map((p, i) => {
       const roomPlayer = playerBySeat.get(i);
-      return roomPlayer
-        ? { ...p, name: sanitizeName(roomPlayer.displayName), avatarId: sanitizeAvatarId(roomPlayer.avatarId) }
-        : p;
+      if (roomPlayer) {
+        return {
+          ...p,
+          name: sanitizeName(roomPlayer.displayName),
+          avatarId: sanitizeAvatarId(roomPlayer.avatarId),
+          isCpu: false,
+        };
+      }
+      // Empty seat → disguise as a human-looking CPU so opponents can't tell.
+      return {
+        ...p,
+        name: disguiseCpuName(i + p.name.length + room.players.length),
+        avatarId: String((i + room.players.length) % 9 + 1),
+        isCpu: true,
+      };
     }),
   };
   return state;
@@ -208,6 +259,73 @@ stopCpuTimer(room);
   }, TURN_AUTO_MS);
 }
 
+// Builds + starts the authoritative game for a room and broadcasts it. Emits
+// `match_started` to everyone in the room. Used by the instant online match
+// (auto-fill with disguised CPUs) and by host-initiated private matches.
+function startMatchForRoom(room) {
+  room.started = true;
+  waitingQueue.delete(room.id);
+  const gameState = buildGameForRoom(room);
+  room.game = { gameId: makeGameId(), state: gameState };
+  const seatIndexByPlayerId = {};
+  room.players.forEach((p) => {
+    seatIndexByPlayerId[p.id] = p.seatIndex;
+  });
+  console.log(`[MATCH STARTED] ${room.inviteCode} (${room.players.length} human, ${room.maxPlayers - room.players.length} CPU)`);
+
+  io.to(room.id).emit("match_started", {
+    roomId: room.id,
+    gameId: room.game.gameId,
+    playerCount: room.maxPlayers,
+    bet: room.bet,
+    players: room.players.map((p) => ({ id: p.id, name: p.displayName, avatarId: sanitizeAvatarId(p.avatarId) })),
+    gameState: room.game.state,
+    seatIndexByPlayerId,
+  });
+
+  scheduleTurnTimers(room);
+}
+
+// When a real player joins an already-running (CPU-filled) online table, swap
+// this seat's disguised CPU for the real human, preserving the live hand and
+// turn so the round continues seamlessly. Emits `match_started` to the newcomer
+// and `game_update` (rebuilt with real names/avatar) to everyone.
+function seatHumanInLiveGame(room, playerId) {
+  const roomPlayer = room.players.find((p) => p.id === playerId);
+  if (!roomPlayer) return false;
+  const state = room.game && room.game.state;
+  if (!state) return false;
+  const seat = roomPlayer.seatIndex;
+  if (typeof seat !== "number" || seat >= state.players.length) return false;
+
+  room.game.state = {
+    ...state,
+    players: state.players.map((p, i) => {
+      if (i !== seat) return p;
+      return {
+        ...p,
+        name: sanitizeName(roomPlayer.displayName),
+        avatarId: sanitizeAvatarId(roomPlayer.avatarId),
+        isCpu: false,
+      };
+    }),
+  };
+
+  const seatIndexByPlayerId = { [playerId]: seat };
+  io.to(room.id).emit("match_started", {
+    roomId: room.id,
+    gameId: room.game.gameId,
+    playerCount: room.maxPlayers,
+    bet: room.bet,
+    players: room.players.map((p) => ({ id: p.id, name: p.displayName, avatarId: sanitizeAvatarId(p.avatarId) })),
+    gameState: room.game.state,
+    seatIndexByPlayerId,
+  });
+  io.to(room.id).emit("game_update", { gameId: room.game.gameId, gameState: room.game.state });
+  scheduleTurnTimers(room);
+  return true;
+}
+
 // ─── Socket Events ─────────────────────────────────────────────
 io.on("connection", (socket) => {
   console.log(`[CONNECT] ${socket.id}`);
@@ -249,21 +367,25 @@ io.on("connection", (socket) => {
   });
 
   // ── Quick Match (matchmaking queue) ─────────────────────────
-  socket.on("quick_match", ({ playerId, displayName, avatarId, maxPlayers }) => {
+  socket.on("quick_match", ({ playerId, displayName, avatarId, maxPlayers, bet }) => {
     const size = Math.max(2, Math.min(6, Number(maxPlayers) || 4));
+    const tableBet = Math.max(1000, Math.min(100000, Number(bet) || 1000));
 
-    let room = findOpenTable();
+    // Only match against tables with the SAME size AND the SAME bet.
+    let room = findOpenTable(size, tableBet);
     if (!room) {
       room = {
         id: makeRoomId(),
         inviteCode: generateCode(),
         maxPlayers: size,
+        bet: tableBet,
         players: [],
         hostId: playerId,
         started: false,
+        autoCpuFill: true,
       };
       rooms.set(room.id, room);
-      console.log(`[QUICK ROOM CREATED] ${room.inviteCode} (${room.id})`);
+      console.log(`[QUICK ROOM CREATED] ${room.inviteCode} (${room.id}) size=${size} bet=${tableBet}`);
     }
 
     const result = joinRoom(socket, room, playerId, displayName, avatarId);
@@ -272,9 +394,20 @@ io.on("connection", (socket) => {
       return;
     }
 
-    socket.emit("matchmaking_joined", { room: roomToJSON(room) });
-    if (room.players.length >= room.maxPlayers) syncQueue(room);
-    console.log(`[QUICK MATCH] ${sanitizeName(displayName)} → ${room.inviteCode} (${room.players.length}/${room.maxPlayers})`);
+    // If a REAL player already started a game here (running with disguised
+    // CPUs), seat the newcomer in the freed slot and continue seamlessly.
+    if (room.game) {
+      seatHumanInLiveGame(room, playerId);
+      console.log(`[QUICK JOIN] ${sanitizeName(displayName)} → ${room.inviteCode} (seat ${room.players.find((p) => p.id === playerId).seatIndex})`);
+      return;
+    }
+
+    // No matching human opponent yet → auto-start immediately, silently filling
+    // the other seats with disguised CPUs (real-looking names/avatars) so the
+    // player can't tell they are bots. The table stays open for matching.
+    startMatchForRoom(room);
+    syncQueue(room);
+    console.log(`[QUICK MATCH] ${sanitizeName(displayName)} → ${room.inviteCode} auto-started with CPU fill (${room.players.length}/${room.maxPlayers})`);
   });
 
   // ── Cancel matchmaking ──────────────────────────────────────
@@ -327,27 +460,7 @@ io.on("connection", (socket) => {
       return;
     }
 
-    room.started = true;
-    waitingQueue.delete(room.id);
-    const gameState = buildGameForRoom(room);
-    room.game = { gameId: makeGameId(), state: gameState };
-    const seatIndexByPlayerId = {};
-    room.players.forEach((p) => {
-      seatIndexByPlayerId[p.id] = p.seatIndex;
-    });
-    console.log(`[MATCH STARTED] ${room.inviteCode} (${room.players.length} players)`);
-
-    io.to(roomId).emit("match_started", {
-      roomId,
-      gameId: room.game.gameId,
-      playerCount: room.players.length,
-      players: room.players.map((p) => ({ id: p.id, name: p.displayName, avatarId: sanitizeAvatarId(p.avatarId) })),
-      gameState: room.game.state,
-      seatIndexByPlayerId,
-    });
-
-    // If the opening seat is a CPU (e.g. a 2-human room's filler seat), kick off auto-play.
-    scheduleTurnTimers(room);
+    startMatchForRoom(room);
   });
 
   // ── Play Card (networked game) ──────────────────────────────

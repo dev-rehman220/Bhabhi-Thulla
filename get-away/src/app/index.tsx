@@ -50,8 +50,11 @@ import {
   getTransactionHistory,
   MIN_BET,
   MAX_BET,
+  DAILY_REWARDS,
+  getDailyRewardStatus,
+  claimDailyReward,
 } from "@/utils/coinWallet";
-import type { Transaction } from "@/utils/coinWallet";
+import type { Transaction, DailyRewardStatus } from "@/utils/coinWallet";
 
 /* ================================================================
    THEME
@@ -106,7 +109,8 @@ type Stage =
   | "howtoplay"
   | "betting"
   | "online"
-  | "profile";
+  | "profile"
+  | "rewards";
 
 const SUIT_SYMBOL: Record<Suit, string> = {
   spades: "♠",
@@ -670,6 +674,8 @@ function MenuView({
   onStats,
   onHowToPlay,
   onProfile,
+  onRewards,
+  reward,
 }: {
   coinBalance: number;
   profile: Profile;
@@ -680,6 +686,8 @@ function MenuView({
   onStats: () => void;
   onHowToPlay: () => void;
   onProfile: () => void;
+  onRewards: () => void;
+  reward: { status: DailyRewardStatus; claimedDay: number; amount: number } | null;
 }) {
   const { width } = useWindowDimensions();
   const [showPlayerSelect, setShowPlayerSelect] = useState(false);
@@ -772,6 +780,30 @@ function MenuView({
                 </View>
                 <View style={{ width: rs(width, 28), height: rs(width, 28), borderRadius: 999, backgroundColor: "rgba(52,211,153,0.1)", borderWidth: 1, borderColor: "rgba(52,211,153,0.3)", alignItems: "center", justifyContent: "center" }}>
                   <Text style={{ color: T.accent, fontSize: 12, fontWeight: "900" }}>→</Text>
+                </View>
+              </View>
+            </AnimatedPressable>
+
+            {/* Daily Rewards — compact card → opens Rewards screen */}
+            <AnimatedPressable
+              onPress={onRewards}
+              style={{ marginTop: rs(width, 12), borderRadius: 14, overflow: "hidden", borderWidth: 1, borderColor: "rgba(212,168,67,0.25)", backgroundColor: "rgba(34,26,14,0.85)", shadowColor: T.gold, shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.12, shadowRadius: 14, elevation: 6 }}
+            >
+              <View style={{ padding: rs(width, 10), flexDirection: "row", alignItems: "center" }}>
+                <View style={{ width: rs(width, 40), height: rs(width, 40), borderRadius: 10, backgroundColor: "rgba(212,168,67,0.12)", borderWidth: 1, borderColor: "rgba(212,168,67,0.25)", alignItems: "center", justifyContent: "center", marginRight: rs(width, 12) }}>
+                  <Text style={{ fontSize: rs(width, 20) }}>🎁</Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: T.text, fontSize: fs(width, 12), fontWeight: "900" }}>DAILY REWARDS</Text>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 4, marginTop: 3 }}>
+                    <Text style={{ color: T.gold, fontSize: fs(width, 9), fontWeight: "900" }}>🔥</Text>
+                    <Text style={{ color: "rgba(232,245,238,0.5)", fontSize: fs(width, 8), fontWeight: "900", letterSpacing: 0.5 }}>
+                      {reward && reward.status.claimed ? `DAY ${reward.status.streak} CLAIMED` : `DAY ${reward?.status.availableDay ?? 1} · ${DAILY_REWARDS[(reward?.status.availableDay ?? 1) - 1].toLocaleString()} COINS`}
+                    </Text>
+                  </View>
+                </View>
+                <View style={{ width: rs(width, 26), height: rs(width, 26), borderRadius: 999, backgroundColor: "rgba(212,168,67,0.1)", borderWidth: 1, borderColor: "rgba(212,168,67,0.25)", alignItems: "center", justifyContent: "center" }}>
+                  <Text style={{ color: T.gold, fontSize: 12, fontWeight: "900" }}>→</Text>
                 </View>
               </View>
             </AnimatedPressable>
@@ -1399,6 +1431,7 @@ type NetworkInfo = {
   avatarId: string;
   seatIndex: number;
   playerCount: number;
+  bet?: number;
   gameId: string;
   gameState: GameState;
   socket: Socket;
@@ -1653,8 +1686,8 @@ function OnlinePage({
   onBack: () => void;
 }) {
   const [maxPlayers, setMaxPlayers] = useState(4);
-  const [matching, setMatching] = useState(false);
-  const [joined, setJoined] = useState<{ roomId: string; roomCode: string; players: RoomPlayer[] } | null>(null);
+  const [bet, setBet] = useState(MIN_BET);
+  const [finding, setFinding] = useState(false);
   const [onlineCount, setOnlineCount] = useState(0);
   const [error, setError] = useState("");
   const socket = useRef<Socket | null>(null);
@@ -1663,17 +1696,8 @@ function OnlinePage({
     () => `player_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
   );
 
-  // Eager connection: gives us the live "players online" pill on the header.
-  useEffect(() => {
-    const connection = io(resolveServerUrl(), {
-      transports: ["websocket"],
-      reconnection: true,
-      reconnectionAttempts: 5,
-      reconnectionDelay: 1000,
-      timeout: 8000,
-    });
-    socket.current = connection;
-
+  // Wires up all the socket event listeners on a given connection and returns it.
+  const wireSocket = (connection: Socket) => {
     const connectTimeout = setTimeout(() => {
       if (!connection.connected) {
         connection.disconnect();
@@ -1688,61 +1712,85 @@ function OnlinePage({
       setError("Connection failed. Check your network and try again.");
     });
 
+    // A Quick Match auto-starts on the server (either joined a matching human
+    // request, or a fresh CPU-filled table with disguised opponents). Either
+    // way we go straight into the table — never a lobby / create / join screen.
+    connection.on("match_started", ({ roomId, playerCount, gameId, gameState, seatIndexByPlayerId, bet: startedBet }) => {
+      matchStartingRef.current = true;
+      setFinding(false);
+      onMatchStart({
+        roomId,
+        playerId,
+        displayName: profile.name,
+        avatarId: profile.avatarId,
+        seatIndex: seatIndexByPlayerId?.[playerId] ?? 0,
+        playerCount: playerCount ?? maxPlayers,
+        bet: startedBet ?? bet,
+        gameId,
+        gameState,
+        socket: connection,
+      });
+    });
+    connection.on("error", ({ code, message }) => {
+      setFinding(false);
+      setError(code === "ROOM_FULL" ? "That table is full." : code === "MATCH_IN_PROGRESS" ? "A match is already running at this table." : code === "INVALID_MOVE" ? (message || "That move is not allowed.") : "Unable to join this table.");
+    });
+
+    return connection;
+  };
+
+  // Eager connection: gives us the live "players online" pill on the header.
+  useEffect(() => {
+    socket.current = wireSocket(io(resolveServerUrl(), {
+      transports: ["websocket"],
+      reconnection: true,
+      reconnectionAttempts: 5,
+      reconnectionDelay: 1000,
+      timeout: 8000,
+    }));
+
     return () => {
-      if (!matchStartingRef.current) connection.disconnect();
+      if (!matchStartingRef.current) socket.current?.disconnect();
     };
   }, []);
 
-  const emitQuickMatch = (payload: unknown) => {
-    const attach = () => {
-      const connection = socket.current;
-      if (!connection || connection.hasListeners("matchmaking_joined")) return;
-      connection.on("matchmaking_joined", ({ room }) => {
-        setMatching(false);
-        setJoined({ roomId: room.id, roomCode: room.inviteCode, players: room.players });
-      });
-      connection.on("room_updated", ({ room }) => {
-        setJoined((prev) => (prev ? { ...prev, roomId: room.id, roomCode: room.inviteCode, players: room.players } : prev));
-      });
-      connection.on("match_started", ({ roomId, playerCount, gameId, gameState, seatIndexByPlayerId }) => {
-        matchStartingRef.current = true;
-        onMatchStart({
-          roomId,
-          playerId,
-          displayName: profile.name,
-          avatarId: profile.avatarId,
-          seatIndex: seatIndexByPlayerId?.[playerId] ?? 0,
-          playerCount: playerCount ?? maxPlayers,
-          gameId,
-          gameState,
-          socket: connection,
-        });
-      });
-      connection.on("error", ({ code, message }) => setError(code === "ROOM_FULL" ? "This table is full." : code === "MATCH_IN_PROGRESS" ? "A match is already running at this table." : code === "INVALID_CODE" ? "Room code not found." : code === "NOT_HOST" ? "Only the host can start the match." : code === "NOT_ENOUGH_PLAYERS" ? "Need at least 2 players to start." : code === "GAME_NOT_RUNNING" ? "No match is running here." : code === "NOT_IN_ROOM" ? "You are not at this table." : code === "INVALID_MOVE" ? (message || "That move is not allowed.") : "Unable to join this table."));
-      connection.emit("quick_match", payload);
-    };
-    if (socket.current?.connected) attach();
-    else socket.current?.once("connect", attach);
-  };
-
+  // Ensures a fully connected socket exists so `quick_match` is sent immediately
+  // (not buffered on a dead/reconnecting connection from a previous search).
   const findTable = () => {
     setError("");
-    setMatching(true);
-    emitQuickMatch({ playerId, displayName: profile.name, avatarId: profile.avatarId, maxPlayers });
+    setFinding(true);
+
+    // The eager socket may be mid-reconnect or disconnected after a cancel.
+    // Open a fresh one and emit as soon as it connects so auto-start is instant.
+    const connection = socket.current && socket.current.connected
+      ? socket.current
+      : wireSocket(io(resolveServerUrl(), {
+          transports: ["websocket"],
+          reconnection: true,
+          reconnectionAttempts: 5,
+          reconnectionDelay: 1000,
+          timeout: 8000,
+        }));
+    socket.current = connection;
+
+    connection.on("connect", () => {
+      connection.emit("quick_match", { playerId, displayName: profile.name, avatarId: profile.avatarId, maxPlayers, bet });
+    });
+    if (connection.connected) {
+      connection.emit("quick_match", { playerId, displayName: profile.name, avatarId: profile.avatarId, maxPlayers, bet });
+    }
   };
 
   const cancelSearch = () => {
-    socket.current?.emit("leave_matchmaking");
-    setMatching(false);
-    setJoined(null);
+    if (socket.current) {
+      socket.current.removeAllListeners("connect");
+      socket.current.disconnect();
+      socket.current = null;
+    }
+    setFinding(false);
   };
 
-  const leaveTable = () => {
-    socket.current?.disconnect();
-    onBack();
-  };
-
-  const shell = (children: ReactNode) => (
+  const shell = (children: ReactNode, hideBack = false) => (
     <View style={{ flex: 1, backgroundColor: T.bg }}>
       <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 12, paddingVertical: 6, backgroundColor: T.surface, borderBottomWidth: 1, borderBottomColor: T.border }}>
         <Text style={{ color: T.text, fontSize: 11, fontWeight: "900", letterSpacing: 2 }}>GET AWAY THULLA</Text>
@@ -1757,79 +1805,16 @@ function OnlinePage({
       <View style={{ flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 16 }}>
         <View style={{ width: "100%", maxWidth: 500 }}>{children}</View>
       </View>
-      <Pressable onPress={onBack} style={{ position: "absolute", bottom: 12, left: 12, paddingVertical: 8, paddingHorizontal: 14, borderRadius: 8, backgroundColor: "rgba(52,211,153,0.08)", borderWidth: 1, borderColor: "rgba(52,211,153,0.15)" }}>
-        <Text style={{ color: T.accent, fontSize: 12, fontWeight: "900" }}>← BACK</Text>
-      </Pressable>
+      {!hideBack && (
+        <Pressable onPress={onBack} style={{ position: "absolute", bottom: 12, left: 12, paddingVertical: 8, paddingHorizontal: 14, borderRadius: 8, backgroundColor: "rgba(52,211,153,0.08)", borderWidth: 1, borderColor: "rgba(52,211,153,0.15)" }}>
+          <Text style={{ color: T.accent, fontSize: 12, fontWeight: "900" }}>← BACK</Text>
+        </Pressable>
+      )}
     </View>
   );
 
-  // Joined a table via quick match
-  if (joined) {
-    const isHost = joined.players.find((p) => p.id === playerId)?.isHost ?? false;
-    return shell(
-      <>
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-          <View style={{ width: 30, height: 30, borderRadius: 999, backgroundColor: "rgba(52,211,153,0.12)", borderWidth: 1, borderColor: "rgba(52,211,153,0.3)", alignItems: "center", justifyContent: "center" }}>
-            <Text style={{ fontSize: 14 }}>🌐</Text>
-          </View>
-          <View>
-            <Text style={{ color: T.text, fontSize: 16, fontWeight: "900" }}>QUICK TABLE</Text>
-            <Text style={{ color: T.textDim, fontSize: 8, letterSpacing: 2, fontWeight: "900" }}>ONLINE MATCH LOBBY</Text>
-          </View>
-        </View>
-
-        <View style={{ backgroundColor: T.accent, borderRadius: 10, borderWidth: 1, borderColor: T.accent, padding: 12, marginTop: 14, alignSelf: "stretch" }}>
-          <Text style={{ color: T.textMuted, fontSize: 7, letterSpacing: 2, fontWeight: "900" }}>TABLE CODE</Text>
-          <Text style={{ color: T.bg, fontSize: 20, letterSpacing: 3, fontWeight: "900", marginTop: 2 }}>{joined.roomCode || "------"}</Text>
-          <Text style={{ color: "rgba(255,255,255,0.7)", fontSize: 8, marginTop: 2 }}>
-            Friends can join with this code from PLAY WITH FRIENDS
-          </Text>
-        </View>
-
-        <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 12 }}>
-          <Text style={{ color: T.textMuted, fontSize: 8, letterSpacing: 2, fontWeight: "900" }}>PLAYERS JOINED</Text>
-          <Text style={{ color: T.gold, fontSize: 12, fontWeight: "900" }}>{joined.players.length} / {maxPlayers}</Text>
-        </View>
-        <View style={{ marginTop: 6, gap: 4 }}>
-          {joined.players.map((player) => (
-            <View key={player.id} style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: 10, paddingVertical: 6, borderRadius: 6, backgroundColor: "rgba(232,245,238,0.06)" }}>
-              <AvatarChip avatarId={player.avatarId} size={22} label={player.displayName} />
-              <Text style={{ color: T.text, fontSize: 10, fontWeight: "800", marginLeft: 8 }}>
-                {player.displayName}{player.isHost ? " · HOST" : ""}
-              </Text>
-              <Text style={{ color: T.accent, fontSize: 8, fontWeight: "900", marginLeft: "auto" }}>
-                {player.status === "active" ? "READY" : "JOINED"}
-              </Text>
-            </View>
-          ))}
-          {Array.from({ length: Math.max(0, maxPlayers - joined.players.length) }).map((_, i) => (
-            <View key={`empty-${i}`} style={{ paddingVertical: 8, borderWidth: 1, borderStyle: "dashed", borderColor: "rgba(232,245,238,0.1)", borderRadius: 6, alignItems: "center" }}>
-              <Text style={{ color: T.textDim, fontSize: 8, fontWeight: "900" }}>WAITING FOR PLAYER {joined.players.length + i + 1}</Text>
-            </View>
-          ))}
-        </View>
-
-        <View style={{ flexDirection: "row", gap: 10, marginTop: 14, alignItems: "center" }}>
-          <Pressable
-            disabled={!isHost || joined.players.length < 2}
-            onPress={() => socket.current?.emit("start_match", { roomId: joined.roomId })}
-            style={{ flex: 1, backgroundColor: T.accent, borderRadius: 10, paddingVertical: 12, alignItems: "center", opacity: (!isHost || joined.players.length < 2) ? 0.45 : 1 }}
-          >
-            <Text style={{ color: T.bg, fontSize: 11, fontWeight: "900", letterSpacing: 1 }}>
-              {!isHost ? "WAITING FOR HOST TO START" : joined.players.length < 2 ? "WAITING FOR PLAYERS" : "START MATCH →"}
-            </Text>
-          </Pressable>
-          <Pressable onPress={leaveTable} style={{ backgroundColor: "rgba(232,96,90,0.12)", borderWidth: 1, borderColor: "rgba(232,96,90,0.25)", borderRadius: 10, paddingVertical: 12, paddingHorizontal: 14 }}>
-            <Text style={{ color: T.coral, fontSize: 11, fontWeight: "900" }}>✕ LEAVE</Text>
-          </Pressable>
-        </View>
-        {error ? <Text style={{ color: T.coral, fontSize: 9, marginTop: 8 }}>{error}</Text> : null}
-      </>,
-    );
-  }
-
-  // Searching
-  if (matching) {
+  // Searching (very brief — the server auto-starts the table immediately)
+  if (finding) {
     return shell(
       <View style={{ alignItems: "center", paddingVertical: 24 }}>
         <View style={{ width: 44, height: 44, borderRadius: 999, backgroundColor: "rgba(52,211,153,0.1)", borderWidth: 1, borderColor: "rgba(52,211,153,0.3)", alignItems: "center", justifyContent: "center" }}>
@@ -1837,13 +1822,14 @@ function OnlinePage({
         </View>
         <Text style={{ color: T.text, fontSize: 15, fontWeight: "900", marginTop: 14 }}>FINDING A TABLE…</Text>
         <Text style={{ color: T.textMuted, fontSize: 9, marginTop: 6, textAlign: "center" }}>
-          {maxPlayers}-player online match. We are looking for open seats just for you.
+          Matching you against {maxPlayers} players · {bet.toLocaleString()} coins. This can take a moment.
         </Text>
         <Pressable onPress={cancelSearch} style={{ marginTop: 20, backgroundColor: "rgba(232,96,90,0.12)", borderWidth: 1, borderColor: "rgba(232,96,90,0.25)", borderRadius: 10, paddingVertical: 10, paddingHorizontal: 24 }}>
-          <Text style={{ color: T.coral, fontSize: 11, fontWeight: "900" }}>CANCEL SEARCH</Text>
+          <Text style={{ color: T.coral, fontSize: 11, fontWeight: "900" }}>CANCEL</Text>
         </Pressable>
         {error ? <Text style={{ color: T.coral, fontSize: 9, marginTop: 8 }}>{error}</Text> : null}
       </View>,
+      true,
     );
   }
 
@@ -1851,7 +1837,7 @@ function OnlinePage({
     <>
       <Text style={{ color: T.text, fontSize: 16, fontWeight: "900" }}>PLAY ONLINE</Text>
       <Text style={{ color: T.textMuted, fontSize: 8, letterSpacing: 2, fontWeight: "900", marginTop: 4 }}>
-        {onlineCount ? `${onlineCount} PLAYERS ONLINE NOW` : "QUICK MATCH AGAINST REAL PLAYERS"}
+        {onlineCount ? `${onlineCount} PLAYERS ONLINE NOW` : "QUICK MATCH — REAL PLAYERS OR SMART CPU"}
       </Text>
 
       <Text style={{ color: T.textMuted, fontSize: 8, letterSpacing: 2, fontWeight: "900", marginTop: 16 }}>
@@ -1870,11 +1856,50 @@ function OnlinePage({
         ))}
       </View>
 
+      <Text style={{ color: T.textMuted, fontSize: 8, letterSpacing: 2, fontWeight: "900", marginTop: 16 }}>
+        BET AMOUNT
+      </Text>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginTop: 8 }}>
+        <Pressable
+          onPress={() => setBet(Math.max(MIN_BET, bet - 500))}
+          style={{ width: 40, height: 40, borderRadius: 10, backgroundColor: "rgba(232,245,238,0.05)", borderWidth: 1, borderColor: "rgba(232,245,238,0.1)", alignItems: "center", justifyContent: "center" }}
+        >
+          <Text style={{ color: T.text, fontSize: 18, fontWeight: "900" }}>−</Text>
+        </Pressable>
+        <View style={{ flex: 1, alignItems: "center", backgroundColor: T.surface, borderWidth: 1, borderColor: "rgba(52,211,153,0.25)", borderRadius: 10, paddingVertical: 8 }}>
+          <Text style={{ color: T.textDim, fontSize: 6, letterSpacing: 2, fontWeight: "900" }}>YOUR BET</Text>
+          <Text style={{ color: T.gold, fontSize: 20, fontWeight: "900", marginTop: 2 }}>{bet.toLocaleString()}</Text>
+        </View>
+        <Pressable
+          onPress={() => setBet(Math.min(MAX_BET, bet + 500))}
+          style={{ width: 40, height: 40, borderRadius: 10, backgroundColor: "rgba(232,245,238,0.05)", borderWidth: 1, borderColor: "rgba(232,245,238,0.1)", alignItems: "center", justifyContent: "center" }}
+        >
+          <Text style={{ color: T.text, fontSize: 18, fontWeight: "900" }}>+</Text>
+        </Pressable>
+      </View>
+      <View style={{ flexDirection: "row", gap: 6, marginTop: 8, justifyContent: "center", flexWrap: "wrap" }}>
+        {[1000, 2500, 5000, 10000].map((p) => (
+          <Pressable
+            key={p}
+            onPress={() => setBet(Math.min(p, MAX_BET))}
+            style={{
+              borderRadius: 8, paddingHorizontal: 14, paddingVertical: 6, borderWidth: 1,
+              backgroundColor: bet === p ? "rgba(52,211,153,0.12)" : "rgba(232,245,238,0.03)",
+              borderColor: bet === p ? "rgba(52,211,153,0.3)" : "rgba(232,245,238,0.06)",
+            }}
+          >
+            <Text style={{ fontSize: 11, fontWeight: "900", color: bet === p ? T.accent : T.textMuted }}>
+              {p >= 1000 ? `${p / 1000}K` : p}
+            </Text>
+          </Pressable>
+        ))}
+      </View>
+
       <AnimatedPressable
         onPress={findTable}
         style={{ marginTop: 18, backgroundColor: T.accent, borderRadius: 12, paddingVertical: 14, alignItems: "center", shadowColor: T.accent, shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.25, shadowRadius: 18, elevation: 8 }}
       >
-        <Text style={{ color: T.bg, fontSize: 12, fontWeight: "900", letterSpacing: 1 }}>FIND A TABLE →</Text>
+        <Text style={{ color: T.bg, fontSize: 12, fontWeight: "900", letterSpacing: 1 }}>FIND A TABLE · {bet.toLocaleString()} →</Text>
       </AnimatedPressable>
 
       <Pressable onPress={onSwitchToPrivate} style={{ alignSelf: "center", marginTop: 16, paddingVertical: 6 }}>
@@ -1885,6 +1910,118 @@ function OnlinePage({
 
       {error ? <Text style={{ color: T.coral, fontSize: 9, marginTop: 10, textAlign: "center" }}>{error}</Text> : null}
     </>,
+  );
+}
+
+/* ================================================================
+   DAILY REWARDS – 7-day streak panel (shared)
+   ================================================================ */
+
+function RewardsPanel({
+  reward,
+  rewardClaiming,
+  onClaimReward,
+}: {
+  reward: { status: DailyRewardStatus; claimedDay: number; amount: number } | null;
+  rewardClaiming: boolean;
+  onClaimReward: () => void;
+}) {
+  return (
+    <View>
+      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+          <Text style={{ fontSize: 14 }}>🎁</Text>
+          <Text style={{ color: T.text, fontSize: 13, fontWeight: "900" }}>DAILY REWARDS</Text>
+        </View>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: "rgba(212,168,67,0.12)", borderRadius: 999, paddingHorizontal: 10, paddingVertical: 3, borderWidth: 1, borderColor: "rgba(212,168,67,0.3)" }}>
+          <Text style={{ color: T.gold, fontSize: 9, fontWeight: "900" }}>🔥</Text>
+          <Text style={{ color: T.gold, fontSize: 10, fontWeight: "900" }}>
+            {reward && reward.status.claimed ? `DAY ${reward.status.streak} CLAIMED` : `DAY ${reward?.status.availableDay ?? 1} AVAILABLE`}
+          </Text>
+        </View>
+      </View>
+      <Text style={{ color: T.textMuted, fontSize: 9, marginTop: 4, letterSpacing: 0.3 }}>
+        Claim once a day. Complete the streak to win {DAILY_REWARDS[6].toLocaleString()} coins — miss a day and you restart from Day 1.
+      </Text>
+
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ alignItems: "center", gap: 8, paddingVertical: 14 }}>
+        {DAILY_REWARDS.map((amount, i) => {
+          const day = i + 1;
+          const claimedToday = reward?.status.claimed && reward?.status.claimedDay === day;
+          const doneInCycle = reward ? reward.status.streak >= day : false;
+          return (
+            <View
+              key={day}
+              style={{
+                width: 66, borderRadius: 10, paddingVertical: 8, alignItems: "center", borderWidth: 1,
+                backgroundColor: doneInCycle ? "rgba(52,211,153,0.12)" : "rgba(232,245,238,0.03)",
+                borderColor: doneInCycle || claimedToday ? "rgba(52,211,153,0.4)" : "rgba(232,245,238,0.08)",
+              }}
+            >
+              <Text style={{ fontSize: 10, fontWeight: "900", color: doneInCycle ? T.accent : T.textDim }}>DAY {day}</Text>
+              <Text style={{ color: T.gold, fontSize: 12, fontWeight: "900", marginTop: 3 }}>
+                {amount >= 1000 ? `${amount / 1000}K` : amount}
+              </Text>
+              <Text style={{ color: T.textMuted, fontSize: 7, marginTop: 2, fontWeight: "900" }}>
+                {claimedToday ? "✓ CLAIMED" : doneInCycle ? "✓ DONE" : reward && reward.status.availableDay === day ? "● TODAY" : "•"}
+              </Text>
+            </View>
+          );
+        })}
+      </ScrollView>
+
+      <AnimatedPressable
+        onPress={onClaimReward}
+        disabled={!!reward?.status.claimed || rewardClaiming}
+        style={{ backgroundColor: reward?.status.claimed ? "rgba(232,245,238,0.08)" : T.gold, borderRadius: 12, paddingVertical: 13, alignItems: "center", borderWidth: 1, borderColor: reward?.status.claimed ? "rgba(232,245,238,0.12)" : "transparent" }}
+      >
+        <Text style={{ color: reward?.status.claimed ? T.textDim : T.bg, fontSize: 11, fontWeight: "900", letterSpacing: 0.5 }}>
+          {rewardClaiming
+            ? "CLAIMING…"
+            : reward?.status.claimed
+              ? `CLAIMED — COME BACK TOMORROW (DAY ${reward.status.nextDay})`
+              : `CLAIM DAY ${reward?.status.availableDay ?? 1} REWARD · ${DAILY_REWARDS[(reward?.status.availableDay ?? 1) - 1].toLocaleString()} COINS`}
+        </Text>
+      </AnimatedPressable>
+      {reward && reward.amount > 0 ? (
+        <Text style={{ color: T.accent, fontSize: 9, fontWeight: "900", marginTop: 8, textAlign: "center" }}>
+          +{reward.amount.toLocaleString()} coins added to your balance!
+        </Text>
+      ) : null}
+    </View>
+  );
+}
+
+/* ================================================================
+   REWARDS PAGE (full screen opened from a rewards card)
+   ================================================================ */
+
+function RewardsPage({
+  reward,
+  rewardClaiming,
+  onClaimReward,
+  onBack,
+}: {
+  reward: { status: DailyRewardStatus; claimedDay: number; amount: number } | null;
+  rewardClaiming: boolean;
+  onClaimReward: () => void;
+  onBack: () => void;
+}) {
+  return (
+    <View style={{ flex: 1, backgroundColor: T.bg }}>
+      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 10, paddingVertical: 6, backgroundColor: T.surface, borderBottomWidth: 1, borderBottomColor: T.border }}>
+        <Text style={{ color: T.text, fontSize: 10, fontWeight: "900", letterSpacing: 1.5 }}>DAILY REWARDS</Text>
+        <Text style={{ color: T.gold, fontSize: 9, fontWeight: "900" }}>🎁</Text>
+      </View>
+      <ScrollView contentContainerStyle={{ flexGrow: 1, justifyContent: "center", padding: 16 }} showsVerticalScrollIndicator={false}>
+        <View style={{ backgroundColor: T.surface, borderWidth: 1, borderColor: "rgba(212,168,67,0.25)", borderRadius: 16, padding: 16 }}>
+          <RewardsPanel reward={reward} rewardClaiming={rewardClaiming} onClaimReward={onClaimReward} />
+        </View>
+      </ScrollView>
+      <Pressable onPress={onBack} style={{ position: "absolute", bottom: 12, left: 12, paddingVertical: 8, paddingHorizontal: 14, borderRadius: 8, backgroundColor: "rgba(52,211,153,0.08)", borderWidth: 1, borderColor: "rgba(52,211,153,0.15)" }}>
+        <Text style={{ color: T.accent, fontSize: 12, fontWeight: "900" }}>← BACK</Text>
+      </Pressable>
+    </View>
   );
 }
 
@@ -2086,6 +2223,41 @@ function GameView({
     };
   }, [gameState.currentPlayerId, gameState.phase, gameState.trick.length, humanId, network]);
 
+  // The opening A♠ ("starting card") is played automatically: as soon as it
+  // becomes the holder's turn at the start of a round, the ace drops itself —
+  // no tap needed and no waiting on the turn timer. Works for solo (local
+  // engine) and online (server-authoritative) games.
+  const openingPlayedRef = useRef(false);
+  const isGameOpening =
+    gameState.phase === "playing" &&
+    gameState.trick.length === 0 &&
+    gameState.discardCount === 0;
+
+  useEffect(() => {
+    if (!isGameOpening) {
+      openingPlayedRef.current = false;
+      return;
+    }
+    if (gameState.currentPlayerId !== humanId) return;
+    if (openingPlayedRef.current) return;
+    const humanP = gameState.players.find((p) => p.id === humanId);
+    const ace = humanP?.hand.find((c) => c.id === "A-spades");
+    if (!ace) return;
+    openingPlayedRef.current = true;
+    const timer = setTimeout(() => {
+      if (network) {
+        network.socket?.emit("play_card", { roomId: network.roomId, cardId: ace.id });
+      } else {
+        setGameState((prev) => {
+          if (prev.phase !== "playing" || prev.currentPlayerId !== humanId) return prev;
+          const result = enginePlay(prev, humanId, ace.id);
+          return result.error ? prev : result.state;
+        });
+      }
+    }, 800);
+    return () => clearTimeout(timer);
+  }, [isGameOpening, gameState.currentPlayerId, humanId, network]);
+
   const handlePlayCard = useCallback(
     (cardId: string) => {
       if (!isHumanTurn) return;
@@ -2167,6 +2339,16 @@ function GameView({
   const cpuPositions = playerPositions.filter((p) => !p.isHuman);
   const smallCardWidth = cardWidth * 1.15;
 
+  // At the very start of a round the player holding A♠ must open the game. The
+  // starter is the current player while the trick is still empty — surface a
+  // clear "STARTING CARD" marker on that seat so everyone can see who opens.
+  const starterPlayer = isGameOpening
+    ? gameState.players.find((p) => p.id === gameState.currentPlayerId)
+    : undefined;
+  const starterPos = starterPlayer
+    ? playerPositions.find((p) => p.id === starterPlayer.id)
+    : undefined;
+
   return (
     <View style={{ flex: 1, backgroundColor: T.bg }}>
       {/* Top Status Bar */}
@@ -2216,6 +2398,33 @@ function GameView({
               <PlayerBadge name={pos.name} avatarId={pos.avatarId} cardCount={pos.cardCount} isActive={gameState.currentPlayerId === pos.id} safe={pos.safe} x={0} y={0} small />
             </View>
           ))}
+
+          {/* Starting card (A♠) marker — points to whoever opens the game */}
+          {starterPlayer && starterPos && (
+            <Animated.View
+              entering={FadeIn.duration(250)}
+              style={{
+                position: "absolute",
+                left: starterPos.x - (starterPos.isHuman ? 34 : 58),
+                top: starterPos.isHuman ? height - 84 : Math.max(2, starterPos.y - 34),
+                alignItems: "center",
+              }}
+            >
+              <View style={{ backgroundColor: T.gold, borderRadius: 999, paddingHorizontal: 8, paddingVertical: 3, borderWidth: 1, borderColor: "rgba(255,255,255,0.35)", flexDirection: "row", alignItems: "center", gap: 4 }}>
+                <Text style={{ color: T.bg, fontSize: 9, fontWeight: "900" }}>A♠</Text>
+                <Text style={{ color: T.bg, fontSize: 6, fontWeight: "900", letterSpacing: 1 }}>START</Text>
+              </View>
+              <View style={{ width: 2, height: 8, backgroundColor: T.gold, opacity: 0.6 }} />
+            </Animated.View>
+          )}
+          {/* Banner text for the opening card */}
+          {isGameOpening && (
+            <View style={{ position: "absolute", alignSelf: "center", top: 12, backgroundColor: "rgba(6,15,10,0.85)", borderWidth: 1, borderColor: "rgba(212,168,67,0.4)", borderRadius: 999, paddingHorizontal: 10, paddingVertical: 3 }}>
+              <Text style={{ color: T.gold, fontSize: 8, fontWeight: "900", letterSpacing: 1 }} numberOfLines={1} ellipsizeMode="tail">
+                {gameState.currentPlayerId === humanId ? "You hold the STARTING CARD (A♠) — playing it now…" : `${starterPlayer?.name ?? "Opponent"} holds the STARTING CARD (A♠)`}
+              </Text>
+            </View>
+          )}
 
           {/* Center trick cards */}
           {gameState.trick.map((play) => {
@@ -2567,13 +2776,25 @@ export default function GameScreen() {
     favoriteCard: "—",
   });
   const { playButtonPress } = useSound();
+  const [reward, setReward] = useState<{ status: DailyRewardStatus; claimedDay: number; amount: number } | null>(null);
+  const [rewardClaiming, setRewardClaiming] = useState(false);
 
   useEffect(() => {
     loadStats().then(setStats);
     loadProfile().then(setProfile);
     claimWelcomeBonus().then(setCoinBalance);
     getTransactionHistory().then(setTransactions);
+    getDailyRewardStatus().then((status) => setReward({ status, claimedDay: 0, amount: 0 }));
   }, []);
+
+  const handleClaimReward = useCallback(async () => {
+    if (rewardClaiming || reward?.status.claimed) return;
+    setRewardClaiming(true);
+    const { status, amount, balance } = await claimDailyReward();
+    setReward({ status, claimedDay: status.streak, amount });
+    setCoinBalance(balance);
+    setRewardClaiming(false);
+  }, [rewardClaiming, reward]);
 
   useEffect(() => {
     const timer = setTimeout(() => setStage("onboarding"), 1700);
@@ -2660,6 +2881,8 @@ export default function GameScreen() {
           onStats={() => setStage("stats")}
           onHowToPlay={() => setStage("howtoplay")}
           onProfile={() => setStage("profile")}
+          onRewards={() => { playButtonPress(); setStage("rewards"); }}
+          reward={reward}
         />
         <FeedbackSummary
           visible={showFeedback}
@@ -2670,9 +2893,11 @@ export default function GameScreen() {
       </View>
     );
   if (stage === "lobby")
-    return wrapPage(<FriendsLobby profile={profile} onMatchStart={(info) => { setNetwork(info); setSelectedPlayerCount(info.playerCount); setStage("game"); }} onBack={() => setStage("menu")} />);
+    return wrapPage(<FriendsLobby profile={profile} onMatchStart={(info) => { if (info.bet) setCurrentBet(info.bet); setNetwork(info); setSelectedPlayerCount(info.playerCount); setStage("game"); }} onBack={() => setStage("menu")} />);
   if (stage === "online")
-    return wrapPage(<OnlinePage profile={profile} onMatchStart={(info) => { setNetwork(info); setSelectedPlayerCount(info.playerCount); setStage("game"); }} onSwitchToPrivate={() => setStage("lobby")} onBack={() => setStage("menu")} />);
+    return wrapPage(<OnlinePage profile={profile} onMatchStart={(info) => { if (info.bet) setCurrentBet(info.bet); setNetwork(info); setSelectedPlayerCount(info.playerCount); setStage("game"); }} onSwitchToPrivate={() => setStage("lobby")} onBack={() => setStage("menu")} />);
+  if (stage === "rewards")
+    return wrapPage(<RewardsPage reward={reward} rewardClaiming={rewardClaiming} onClaimReward={handleClaimReward} onBack={() => setStage("menu")} />);
 
   return wrapPage(
     <GameView
