@@ -762,48 +762,54 @@ function MenuView({
         {/* Main Content */}
         <View style={{ flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", paddingHorizontal: rs(width, 32), gap: rs(width, 40) }}>
           {/* Left Side */}
-          <View style={{ flex: 1, maxWidth: rs(width, 520) }}>
+          <View style={{ flex: 1, maxWidth: rs(width, 520), gap: rs(width, 12) }}>
             {/* PLAY ONLINE */}
             <AnimatedPressable
               onPress={onOnline}
-              style={{ marginTop: rs(width, 14), borderRadius: 18, overflow: "hidden", shadowColor: T.accent, shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.2, shadowRadius: 22, elevation: 12 }}
+              style={{ borderRadius: 18, overflow: "hidden", shadowColor: T.accent, shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.2, shadowRadius: 20, elevation: 10 }}
             >
-              <View style={{ padding: rs(width, 14), borderWidth: 1, borderColor: "rgba(52,211,153,0.35)", backgroundColor: "rgba(10,40,26,0.9)", borderRadius: 14, flexDirection: "row", alignItems: "center", position: "relative", minHeight: rs(width, 58) }}>
+              <View style={{ padding: rs(width, 14), borderWidth: 1, borderColor: "rgba(52,211,153,0.35)", backgroundColor: "rgba(10,40,26,0.9)", borderRadius: 14, position: "relative" }}>
                 <View style={{ position: "absolute", top: 0, left: 16, right: 16, height: 1, backgroundColor: T.accent, opacity: 0.6 }} />
-                <View style={{ width: rs(width, 44), height: rs(width, 56), borderRadius: 12, backgroundColor: "rgba(52,211,153,0.12)", borderWidth: 1, borderColor: "rgba(52,211,153,0.3)", alignItems: "center", justifyContent: "center", marginRight: rs(width, 14) }}>
-                  <Text style={{ fontSize: rs(width, 22) }}>🌐</Text>
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={{ color: T.accent, fontSize: fs(width, 7), letterSpacing: 2.5, fontWeight: "900" }}>QUICK MATCH</Text>
-                  <Text style={{ color: T.text, fontSize: fs(width, 14), fontWeight: "900", marginTop: 2 }}>PLAY ONLINE</Text>
-                  <Text style={{ color: "rgba(232,245,238,0.35)", fontSize: fs(width, 9), marginTop: 4, lineHeight: 14 }} numberOfLines={2}>Jump into a live table with real players from anywhere.</Text>
-                </View>
-                <View style={{ width: rs(width, 28), height: rs(width, 28), borderRadius: 999, backgroundColor: "rgba(52,211,153,0.1)", borderWidth: 1, borderColor: "rgba(52,211,153,0.3)", alignItems: "center", justifyContent: "center" }}>
-                  <Text style={{ color: T.accent, fontSize: 12, fontWeight: "900" }}>→</Text>
+                <View style={{ flexDirection: "row", alignItems: "center", minHeight: rs(width, 58) }}>
+                  <View style={{ width: rs(width, 44), height: rs(width, 56), borderRadius: 12, backgroundColor: "rgba(52,211,153,0.12)", borderWidth: 1, borderColor: "rgba(52,211,153,0.3)", alignItems: "center", justifyContent: "center", marginRight: rs(width, 14) }}>
+                    <Text style={{ fontSize: rs(width, 24) }}>🌐</Text>
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: T.accent, fontSize: fs(width, 7), letterSpacing: 2.5, fontWeight: "900" }}>QUICK MATCH</Text>
+                    <Text style={{ color: T.text, fontSize: fs(width, 14), fontWeight: "900", marginTop: 2 }}>PLAY ONLINE</Text>
+                    <Text style={{ color: "rgba(232,245,238,0.35)", fontSize: fs(width, 9), marginTop: 4, lineHeight: 14 }} numberOfLines={2}>Jump into a live table with real players from anywhere.</Text>
+                  </View>
+                  <View style={{ width: rs(width, 28), height: rs(width, 28), borderRadius: 999, backgroundColor: "rgba(52,211,153,0.1)", borderWidth: 1, borderColor: "rgba(52,211,153,0.3)", alignItems: "center", justifyContent: "center" }}>
+                    <Text style={{ color: T.accent, fontSize: 12, fontWeight: "900" }}>→</Text>
+                  </View>
                 </View>
               </View>
             </AnimatedPressable>
 
-            {/* Daily Rewards — compact card → opens Rewards screen */}
+            {/* Daily Rewards — opens Rewards screen */}
             <AnimatedPressable
               onPress={onRewards}
-              style={{ marginTop: rs(width, 12), borderRadius: 14, overflow: "hidden", borderWidth: 1, borderColor: "rgba(212,168,67,0.25)", backgroundColor: "rgba(34,26,14,0.85)", shadowColor: T.gold, shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.12, shadowRadius: 14, elevation: 6 }}
+              style={{ borderRadius: 18, overflow: "hidden", borderWidth: 1, borderColor: "rgba(212,168,67,0.25)", backgroundColor: "rgba(34,26,14,0.85)", shadowColor: T.gold, shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.12, shadowRadius: 20, elevation: 8 }}
             >
-              <View style={{ padding: rs(width, 10), flexDirection: "row", alignItems: "center" }}>
-                <View style={{ width: rs(width, 40), height: rs(width, 40), borderRadius: 10, backgroundColor: "rgba(212,168,67,0.12)", borderWidth: 1, borderColor: "rgba(212,168,67,0.25)", alignItems: "center", justifyContent: "center", marginRight: rs(width, 12) }}>
-                  <Text style={{ fontSize: rs(width, 20) }}>🎁</Text>
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={{ color: T.text, fontSize: fs(width, 12), fontWeight: "900" }}>DAILY REWARDS</Text>
-                  <View style={{ flexDirection: "row", alignItems: "center", gap: 4, marginTop: 3 }}>
-                    <Text style={{ color: T.gold, fontSize: fs(width, 9), fontWeight: "900" }}>🔥</Text>
-                    <Text style={{ color: "rgba(232,245,238,0.5)", fontSize: fs(width, 8), fontWeight: "900", letterSpacing: 0.5 }}>
-                      {reward && reward.status.claimed ? `DAY ${reward.status.streak} CLAIMED` : `DAY ${reward?.status.availableDay ?? 1} · ${DAILY_REWARDS[(reward?.status.availableDay ?? 1) - 1].toLocaleString()} COINS`}
-                    </Text>
+              <View style={{ padding: rs(width, 14), borderWidth: 1, borderColor: "rgba(212,168,67,0.12)", borderRadius: 14, position: "relative" }}>
+                <View style={{ position: "absolute", top: 0, left: 16, right: 16, height: 1, backgroundColor: T.gold, opacity: 0.3 }} />
+                <View style={{ flexDirection: "row", alignItems: "center", minHeight: rs(width, 58) }}>
+                  <View style={{ width: rs(width, 44), height: rs(width, 56), borderRadius: 12, backgroundColor: "rgba(212,168,67,0.12)", borderWidth: 1, borderColor: "rgba(212,168,67,0.25)", alignItems: "center", justifyContent: "center", marginRight: rs(width, 14) }}>
+                    <Text style={{ fontSize: rs(width, 24) }}>🎁</Text>
                   </View>
-                </View>
-                <View style={{ width: rs(width, 26), height: rs(width, 26), borderRadius: 999, backgroundColor: "rgba(212,168,67,0.1)", borderWidth: 1, borderColor: "rgba(212,168,67,0.25)", alignItems: "center", justifyContent: "center" }}>
-                  <Text style={{ color: T.gold, fontSize: 12, fontWeight: "900" }}>→</Text>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: "rgba(212,168,67,0.5)", fontSize: fs(width, 7), letterSpacing: 2.5, fontWeight: "900" }}>DAILY BONUS</Text>
+                    <Text style={{ color: T.text, fontSize: fs(width, 14), fontWeight: "900", marginTop: 2 }}>DAILY REWARDS</Text>
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 4, marginTop: 4 }}>
+                      <Text style={{ color: T.gold, fontSize: fs(width, 9), fontWeight: "900" }}>🔥</Text>
+                      <Text numberOfLines={2} style={{ color: "rgba(212,168,67,0.6)", fontSize: fs(width, 9), lineHeight: 14, fontWeight: "900", letterSpacing: 0.5, flexShrink: 1 }}>
+                        {reward && reward.status.claimed ? `DAY ${reward.status.streak} CLAIMED` : `DAY ${reward?.status.availableDay ?? 1} · ${DAILY_REWARDS[(reward?.status.availableDay ?? 1) - 1].toLocaleString()} COINS`}
+                      </Text>
+                    </View>
+                  </View>
+                  <View style={{ width: rs(width, 28), height: rs(width, 28), borderRadius: 999, backgroundColor: "rgba(212,168,67,0.1)", borderWidth: 1, borderColor: "rgba(212,168,67,0.25)", alignItems: "center", justifyContent: "center" }}>
+                    <Text style={{ color: T.gold, fontSize: 12, fontWeight: "900" }}>→</Text>
+                  </View>
                 </View>
               </View>
             </AnimatedPressable>
@@ -1835,60 +1841,60 @@ function OnlinePage({
 
   return shell(
     <>
-      <Text style={{ color: T.text, fontSize: 16, fontWeight: "900" }}>PLAY ONLINE</Text>
-      <Text style={{ color: T.textMuted, fontSize: 8, letterSpacing: 2, fontWeight: "900", marginTop: 4 }}>
+      <Text style={{ color: T.text, fontSize: 14, fontWeight: "900" }}>PLAY ONLINE</Text>
+      <Text style={{ color: T.textMuted, fontSize: 7, letterSpacing: 2, fontWeight: "900", marginTop: 2 }}>
         {onlineCount ? `${onlineCount} PLAYERS ONLINE NOW` : "QUICK MATCH — REAL PLAYERS OR SMART CPU"}
       </Text>
 
-      <Text style={{ color: T.textMuted, fontSize: 8, letterSpacing: 2, fontWeight: "900", marginTop: 16 }}>
+      <Text style={{ color: T.textMuted, fontSize: 7, letterSpacing: 2, fontWeight: "900", marginTop: 12 }}>
         TABLE SIZE
       </Text>
-      <View style={{ flexDirection: "row", gap: 6, marginTop: 8 }}>
+      <View style={{ flexDirection: "row", gap: 5, marginTop: 6 }}>
         {[2, 3, 4, 5, 6].map((count) => (
           <AnimatedPressable
             key={count}
             onPress={() => setMaxPlayers(count)}
-            style={{ width: 52, height: 56, borderRadius: 8, borderWidth: 1, alignItems: "center", justifyContent: "center", backgroundColor: count === maxPlayers ? T.accent : T.surface, borderColor: count === maxPlayers ? T.accent : "rgba(232,245,238,0.2)" }}
+            style={{ flex: 1, height: 46, borderRadius: 8, borderWidth: 1, alignItems: "center", justifyContent: "center", backgroundColor: count === maxPlayers ? T.accent : T.surface, borderColor: count === maxPlayers ? T.accent : "rgba(232,245,238,0.2)" }}
           >
-            <Text style={{ color: count === maxPlayers ? T.bg : T.text, fontSize: 16, fontWeight: "900" }}>{count}</Text>
+            <Text style={{ color: count === maxPlayers ? T.bg : T.text, fontSize: 15, fontWeight: "900" }}>{count}</Text>
             <Text style={{ color: count === maxPlayers ? T.bg : T.textMuted, fontSize: 5, fontWeight: "900", marginTop: 1 }}>PLAYERS</Text>
           </AnimatedPressable>
         ))}
       </View>
 
-      <Text style={{ color: T.textMuted, fontSize: 8, letterSpacing: 2, fontWeight: "900", marginTop: 16 }}>
+      <Text style={{ color: T.textMuted, fontSize: 7, letterSpacing: 2, fontWeight: "900", marginTop: 12 }}>
         BET AMOUNT
       </Text>
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginTop: 8 }}>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginTop: 6 }}>
         <Pressable
           onPress={() => setBet(Math.max(MIN_BET, bet - 500))}
-          style={{ width: 40, height: 40, borderRadius: 10, backgroundColor: "rgba(232,245,238,0.05)", borderWidth: 1, borderColor: "rgba(232,245,238,0.1)", alignItems: "center", justifyContent: "center" }}
+          style={{ width: 36, height: 36, borderRadius: 10, backgroundColor: "rgba(232,245,238,0.05)", borderWidth: 1, borderColor: "rgba(232,245,238,0.1)", alignItems: "center", justifyContent: "center" }}
         >
-          <Text style={{ color: T.text, fontSize: 18, fontWeight: "900" }}>−</Text>
+          <Text style={{ color: T.text, fontSize: 16, fontWeight: "900" }}>−</Text>
         </Pressable>
-        <View style={{ flex: 1, alignItems: "center", backgroundColor: T.surface, borderWidth: 1, borderColor: "rgba(52,211,153,0.25)", borderRadius: 10, paddingVertical: 8 }}>
+        <View style={{ flex: 1, alignItems: "center", backgroundColor: T.surface, borderWidth: 1, borderColor: "rgba(52,211,153,0.25)", borderRadius: 10, paddingVertical: 4 }}>
           <Text style={{ color: T.textDim, fontSize: 6, letterSpacing: 2, fontWeight: "900" }}>YOUR BET</Text>
-          <Text style={{ color: T.gold, fontSize: 20, fontWeight: "900", marginTop: 2 }}>{bet.toLocaleString()}</Text>
+          <Text style={{ color: T.gold, fontSize: 18, fontWeight: "900", marginTop: 1 }}>{bet.toLocaleString()}</Text>
         </View>
         <Pressable
           onPress={() => setBet(Math.min(MAX_BET, bet + 500))}
-          style={{ width: 40, height: 40, borderRadius: 10, backgroundColor: "rgba(232,245,238,0.05)", borderWidth: 1, borderColor: "rgba(232,245,238,0.1)", alignItems: "center", justifyContent: "center" }}
+          style={{ width: 36, height: 36, borderRadius: 10, backgroundColor: "rgba(232,245,238,0.05)", borderWidth: 1, borderColor: "rgba(232,245,238,0.1)", alignItems: "center", justifyContent: "center" }}
         >
-          <Text style={{ color: T.text, fontSize: 18, fontWeight: "900" }}>+</Text>
+          <Text style={{ color: T.text, fontSize: 16, fontWeight: "900" }}>+</Text>
         </Pressable>
       </View>
-      <View style={{ flexDirection: "row", gap: 6, marginTop: 8, justifyContent: "center", flexWrap: "wrap" }}>
+      <View style={{ flexDirection: "row", gap: 6, marginTop: 6, justifyContent: "center", flexWrap: "wrap" }}>
         {[1000, 2500, 5000, 10000].map((p) => (
           <Pressable
             key={p}
             onPress={() => setBet(Math.min(p, MAX_BET))}
             style={{
-              borderRadius: 8, paddingHorizontal: 14, paddingVertical: 6, borderWidth: 1,
+              borderRadius: 8, paddingHorizontal: 14, paddingVertical: 4, borderWidth: 1,
               backgroundColor: bet === p ? "rgba(52,211,153,0.12)" : "rgba(232,245,238,0.03)",
               borderColor: bet === p ? "rgba(52,211,153,0.3)" : "rgba(232,245,238,0.06)",
             }}
           >
-            <Text style={{ fontSize: 11, fontWeight: "900", color: bet === p ? T.accent : T.textMuted }}>
+            <Text style={{ fontSize: 10, fontWeight: "900", color: bet === p ? T.accent : T.textMuted }}>
               {p >= 1000 ? `${p / 1000}K` : p}
             </Text>
           </Pressable>
@@ -1897,12 +1903,12 @@ function OnlinePage({
 
       <AnimatedPressable
         onPress={findTable}
-        style={{ marginTop: 18, backgroundColor: T.accent, borderRadius: 12, paddingVertical: 14, alignItems: "center", shadowColor: T.accent, shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.25, shadowRadius: 18, elevation: 8 }}
+        style={{ marginTop: 14, backgroundColor: T.accent, borderRadius: 12, paddingVertical: 12, alignItems: "center", shadowColor: T.accent, shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.25, shadowRadius: 18, elevation: 8 }}
       >
         <Text style={{ color: T.bg, fontSize: 12, fontWeight: "900", letterSpacing: 1 }}>FIND A TABLE · {bet.toLocaleString()} →</Text>
       </AnimatedPressable>
 
-      <Pressable onPress={onSwitchToPrivate} style={{ alignSelf: "center", marginTop: 16, paddingVertical: 6 }}>
+      <Pressable onPress={onSwitchToPrivate} style={{ alignSelf: "center", marginTop: 12, paddingVertical: 4 }}>
         <Text style={{ color: T.textMuted, fontSize: 9, fontWeight: "900", letterSpacing: 1 }}>
           Prefer a private table? <Text style={{ color: T.gold }}>PLAY WITH FRIENDS →</Text>
         </Text>
@@ -2595,7 +2601,7 @@ function GameView({
                 </Pressable>
               )}
               <Pressable
-                onPress={() => { setMatchOverVisible(false); setShowLeaveConfirm(true); }}
+                onPress={() => { playButtonPress(); setMatchOverVisible(false); setShowLeaveConfirm(true); }}
                 style={{ flex: 1, paddingVertical: 14, borderRadius: 12, alignItems: "center", borderWidth: 1, borderColor: "rgba(232,96,90,0.4)", backgroundColor: "rgba(232,96,90,0.12)" }}
               >
                 <Text style={{ color: T.coral, fontSize: fs(width, 11), fontWeight: "900", letterSpacing: 1 }}>LEAVE TABLE</Text>
