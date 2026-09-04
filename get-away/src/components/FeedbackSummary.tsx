@@ -1,6 +1,7 @@
 import { View, Text, Pressable, Modal, useWindowDimensions } from "react-native";
 import Animated, { FadeIn, FadeOut, useSharedValue, useAnimatedStyle, withSpring } from "react-native-reanimated";
 import type { GameStats } from "@/utils/gameStats";
+import { soundManager } from "@/utils/soundManager";
 
 export type FeedbackStats = GameStats;
 
@@ -83,6 +84,7 @@ export function FeedbackSummary({ visible, onClose, onPlayWithFriends, stats }: 
               </View>
               <Pressable
                 onPress={() => { handleClose(); setTimeout(onClose, 180); }}
+                onPressIn={() => soundManager.play("buttonPress")}
                 style={{ width: 36, height: 36, borderRadius: 999, backgroundColor: "rgba(232,245,238,0.1)", alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: T.border }}
               >
                 <Text style={{ color: T.text, fontSize: 14, fontWeight: "900" }}>✕</Text>
@@ -123,6 +125,7 @@ export function FeedbackSummary({ visible, onClose, onPlayWithFriends, stats }: 
             {/* Action Buttons */}
             <Pressable
               onPress={() => { handleClose(); setTimeout(onPlayWithFriends, 180); }}
+              onPressIn={() => soundManager.play("buttonPress")}
               style={{ paddingVertical: 16, borderRadius: 12, alignItems: "center", marginBottom: 12, backgroundColor: T.gold, shadowColor: "#D4A843", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 12, elevation: 8 }}
             >
               <Text style={{ color: T.bg, fontSize: width > 500 ? 11 : 10, fontWeight: "900", letterSpacing: 1 }}>PLAY WITH FRIENDS →</Text>
@@ -130,6 +133,7 @@ export function FeedbackSummary({ visible, onClose, onPlayWithFriends, stats }: 
 
             <Pressable
               onPress={() => { handleClose(); setTimeout(onClose, 180); }}
+              onPressIn={() => soundManager.play("buttonPress")}
               style={{ paddingVertical: 14, borderRadius: 12, alignItems: "center", borderWidth: 1, borderColor: T.border }}
             >
               <Text style={{ color: T.text, fontSize: width > 500 ? 11 : 10, fontWeight: "700", letterSpacing: 1 }}>CLOSE</Text>

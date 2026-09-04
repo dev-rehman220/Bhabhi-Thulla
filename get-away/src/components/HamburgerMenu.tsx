@@ -1,6 +1,7 @@
 import { useState, useCallback } from "react";
 import { Pressable, View, Text, Modal } from "react-native";
 import Animated, { FadeIn, FadeOut } from "react-native-reanimated";
+import { soundManager } from "@/utils/soundManager";
 
 export type MenuItem = {
   label: string;
@@ -21,10 +22,15 @@ export function HamburgerMenu({ items }: HamburgerMenuProps) {
     setTimeout(onPress, 150);
   }, []);
 
+  const playClick = useCallback(() => {
+    soundManager.play("buttonPress");
+  }, []);
+
   return (
     <View>
       <Pressable
         onPress={() => setVisible(true)}
+        onPressIn={playClick}
         style={{
           width: 44,
           height: 44,
@@ -81,6 +87,7 @@ export function HamburgerMenu({ items }: HamburgerMenuProps) {
                 <Pressable
                   key={index}
                   onPress={() => handleItemPress(item.onPress)}
+                  onPressIn={playClick}
                   style={{
                     flexDirection: "row",
                     alignItems: "center",

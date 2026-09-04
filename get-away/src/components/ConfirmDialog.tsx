@@ -1,5 +1,6 @@
 import { View, Text, Pressable, Modal, useWindowDimensions } from "react-native";
 import Animated, { FadeIn, FadeOut } from "react-native-reanimated";
+import { soundManager } from "@/utils/soundManager";
 
 type ConfirmDialogProps = {
   visible: boolean;
@@ -65,12 +66,14 @@ export function ConfirmDialog({
           <View style={{ flexDirection: "row", gap: 12, marginTop: 24 }}>
             <Pressable
               onPress={onCancel}
+              onPressIn={() => soundManager.play("buttonPress")}
               style={{ flex: 1, paddingVertical: 14, borderRadius: 12, borderWidth: 1, borderColor: "rgba(232,245,238,0.1)", alignItems: "center" }}
             >
               <Text style={{ color: T.text, fontSize: width > 500 ? 12 : 11, fontWeight: "900", letterSpacing: 0.15 * 10 }}>{cancelLabel}</Text>
             </Pressable>
             <Pressable
               onPress={onConfirm}
+              onPressIn={() => soundManager.play("buttonPress")}
               style={{
                 flex: 1,
                 paddingVertical: 14,

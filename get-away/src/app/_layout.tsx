@@ -5,6 +5,7 @@ import { Stack } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
 import * as NavigationBar from "expo-navigation-bar";
+import { soundManager } from "@/utils/soundManager";
 
 SplashScreen.preventAutoHideAsync();
 
@@ -33,6 +34,7 @@ class ErrorBoundary extends Component<
           </Text>
           <Pressable
             onPress={() => this.setState({ hasError: false, error: "" })}
+            onPressIn={() => soundManager.play("buttonPress")}
             className="bg-gold rounded-xl px-8 py-3"
           >
             <Text className="text-ink text-xs font-black tracking-wider">

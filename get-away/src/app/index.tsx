@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import {
-  Pressable,
+  Pressable as RNPressable,
   ScrollView,
   Text,
   TextInput,
@@ -10,7 +10,7 @@ import {
   BackHandler,
   Modal,
 } from "react-native";
-import type { ReactNode } from "react";
+import type { ReactNode, ComponentProps } from "react";
 import Constants from "expo-constants";
 import { Image } from "expo-image";
 import { io, Socket } from "socket.io-client";
@@ -33,6 +33,7 @@ import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { FeedbackSummary } from "@/components/FeedbackSummary";
 import type { FeedbackStats } from "@/components/FeedbackSummary";
 import { useSound } from "@/hooks/useSound";
+import { soundManager } from "@/utils/soundManager";
 import { AVATARS, AVATAR_IDS, isAvatarId } from "@/constants/avatars";
 import { loadProfile, saveProfile, MAX_PROFILE_NAME_LENGTH } from "@/utils/profile";
 import type { Profile } from "@/utils/profile";
@@ -207,6 +208,27 @@ function resolveServerUrl(): string {
     (typeof window !== "undefined" && typeof window.location?.hostname === "string"
       ? `http://${window.location.hostname}:3001`
       : `http://${hostUri?.split(":")[0] ?? "localhost"}:3001`)
+  );
+}
+
+/* ================================================================
+   PRESSABLE (sound-enabled wrapper)
+   Every press plays the button-click sfx unless `sound={false}`.
+   ================================================================ */
+
+type PressableProps = ComponentProps<typeof RNPressable> & { sound?: boolean };
+
+function Pressable({ sound = true, onPressIn, ...props }: PressableProps) {
+  return (
+    <RNPressable
+      {...props}
+      onPressIn={(e) => {
+        if (sound) {
+          soundManager.play("buttonPress");
+        }
+        onPressIn?.(e);
+      }}
+    />
   );
 }
 
@@ -958,7 +980,7 @@ function SettingsRow({ icon, title, subtitle, children }: { icon: string; title:
 
 function SettingsPage({ onBack }: { onBack: () => void }) {
   const { width } = useWindowDimensions();
-  const [soundEnabled, setSoundEnabled] = useState(true);
+  const [soundEnabled, setSoundEnabled] = useState(soundManager.enabled);
   const [hapticsEnabled, setHapticsEnabled] = useState(true);
 
   return (
@@ -973,7 +995,7 @@ function SettingsPage({ onBack }: { onBack: () => void }) {
       <ScrollView showsVerticalScrollIndicator={false} style={{ flex: 1 }}>
         <View style={{ gap: 8 }}>
           <SettingsRow icon="🔊" title="Sound Effects" subtitle="Card sounds, banners & alerts">
-            <SettingsToggle value={soundEnabled} onToggle={() => setSoundEnabled(!soundEnabled)} />
+            <SettingsToggle value={soundEnabled} onToggle={() => setSoundEnabled(soundManager.toggle())} />
           </SettingsRow>
           <SettingsRow icon="📳" title="Haptic Feedback" subtitle="Vibration on play & win">
             <SettingsToggle value={hapticsEnabled} onToggle={() => setHapticsEnabled(!hapticsEnabled)} />
@@ -2107,7 +2129,7 @@ function GameView({
     return () => clearTimeout(timer);
   }, [gameState.phase]);
 
-  const { playCardPlay, playTrickWon, playSafe, playLoser, playTurnChange, playGameOver, playButtonPress } = useSound();
+  const { playCardPlay, playTrickWon, playSafe, playLoser, playTurnChange, playGameOver } = useSound();
 
   const humanPlayer = getHumanPlayer(gameState, humanId);
   const humanHand = sortHand(humanPlayer?.hand ?? []);
@@ -2282,7 +2304,6 @@ function GameView({
   );
 
   const startNewGame = useCallback(() => {
-    playButtonPress();
     if (network) {
       network.socket.emit("restart_match", { roomId: network.roomId });
       return;
@@ -2291,7 +2312,7 @@ function GameView({
     setBanner(null);
     lastMessageRef.current = "";
     lastSafeRef.current = false;
-  }, [playerCount, playButtonPress, network, soloProfile]);
+  }, [playerCount, network, soloProfile]);
 
   const getPlayerPositions = () => {
     const positions: { id: string; name: string; avatarId?: string; x: number; y: number; isHuman: boolean; cardCount: number; safe: boolean }[] = [];
@@ -2511,7 +2532,7 @@ function GameView({
               const isPlayable = playableIds.has(card.id);
               const dimmed = !isPlayable && isHumanTurn;
               return (
-                <Pressable key={cardKey(card)} onPress={() => isPlayable && handlePlayCard(card.id)} disabled={!isPlayable}>
+                <Pressable sound={false} key={cardKey(card)} onPress={() => isPlayable && handlePlayCard(card.id)} disabled={!isPlayable}>
                   <GameCardView card={card} width={cardWidth} playable={isPlayable} dimmed={dimmed} />
                 </Pressable>
               );
@@ -2601,7 +2622,7 @@ function GameView({
                 </Pressable>
               )}
               <Pressable
-                onPress={() => { playButtonPress(); setMatchOverVisible(false); setShowLeaveConfirm(true); }}
+                onPress={() => { setMatchOverVisible(false); setShowLeaveConfirm(true); }}
                 style={{ flex: 1, paddingVertical: 14, borderRadius: 12, alignItems: "center", borderWidth: 1, borderColor: "rgba(232,96,90,0.4)", backgroundColor: "rgba(232,96,90,0.12)" }}
               >
                 <Text style={{ color: T.coral, fontSize: fs(width, 11), fontWeight: "900", letterSpacing: 1 }}>LEAVE TABLE</Text>
@@ -2781,7 +2802,6 @@ export default function GameScreen() {
     longestStreak: 0,
     favoriteCard: "—",
   });
-  const { playButtonPress } = useSound();
   const [reward, setReward] = useState<{ status: DailyRewardStatus; claimedDay: number; amount: number } | null>(null);
   const [rewardClaiming, setRewardClaiming] = useState(false);
 
@@ -2880,14 +2900,14 @@ export default function GameScreen() {
         <MenuView
           coinBalance={coinBalance}
           profile={profile}
-          onPlay={(playerCount) => { playButtonPress(); setSelectedPlayerCount(playerCount); setStage("betting"); }}
-          onFriends={() => { playButtonPress(); setStage("lobby"); }}
-          onOnline={() => { playButtonPress(); setStage("online"); }}
+          onPlay={(playerCount) => { setSelectedPlayerCount(playerCount); setStage("betting"); }}
+          onFriends={() => setStage("lobby")}
+          onOnline={() => setStage("online")}
           onSettings={() => setStage("settings")}
           onStats={() => setStage("stats")}
           onHowToPlay={() => setStage("howtoplay")}
           onProfile={() => setStage("profile")}
-          onRewards={() => { playButtonPress(); setStage("rewards"); }}
+          onRewards={() => setStage("rewards")}
           reward={reward}
         />
         <FeedbackSummary
